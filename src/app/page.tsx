@@ -1,84 +1,233 @@
 "use client";
 
-import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+
+interface Entry {
+  id: number;
+  name: string;
+  created_at: string;
+}
 
 export default function Home() {
-  const [text, setText] = useState('');
+  const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
+  const [leaderboard, setLeaderboard] = useState<Entry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 获取排行榜
+  const fetchLeaderboard = async () => {
+    const { data, error } = await supabase
+      .from("text_entries")
+      .select("id, name, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (!error && data) {
+      setLeaderboard(data as Entry[]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchLeaderboard();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    if (!name.trim()) return;
 
     setSubmitting(true);
-    setMessage('');
+    setMessage("");
 
-    try {
-      const { error } = await supabase
-        .from('text_entries')
-        .insert([{ content: text }]);
+    const { error } = await supabase
+      .from("text_entries")
+      .insert([{ name: name.trim() }]);
 
-      if (error) throw error;
-
-      setText('');
-      setMessage('✅ 写入成功！');
-    } catch (err) {
-      setMessage('❌ 写入失败：' + (err as Error).message);
-    } finally {
-      setSubmitting(false);
+    if (error) {
+      setMessage("❌ 提交失败：" + error.message);
+    } else {
+      setName("");
+      setMessage("✅ 提交成功！");
+      fetchLeaderboard();
     }
+    setSubmitting(false);
   };
 
   return (
-    <main style={{ minHeight: '100vh', padding: '2rem', background: '#f5f5f5' }}>
-      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1.5rem', color: '#333' }}>
-          文本写入数据库
-        </h1>
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 50%, #f3e5f5 100%)",
+      padding: "2rem 1rem",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    }}>
+      <div style={{ maxWidth: "480px", margin: "0 auto" }}>
+        
+        {/* 标题 */}
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <h1 style={{
+            fontSize: "1.8rem",
+            fontWeight: 700,
+            color: "#2d3748",
+            marginBottom: "0.5rem",
+          }}>
+            🌿 很高兴来到我的测试页
+          </h1>
+          <p style={{ color: "#718096", fontSize: "0.95rem" }}>
+            留下你的姓名，一起参与排行吧
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.75rem' }}>
+        {/* 输入表单 */}
+        <form onSubmit={handleSubmit} style={{
+          background: "white",
+          borderRadius: "20px",
+          padding: "1.5rem",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+          marginBottom: "1.5rem",
+        }}>
           <input
             type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="输入文字..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="请输入你的姓名..."
             disabled={submitting}
+            maxLength={20}
             style={{
-              flex: 1,
-              padding: '0.75rem 1rem',
-              fontSize: '1rem',
-              border: '1px solid #ddd',
-              borderRadius: '8px',
-              outline: 'none',
+              width: "100%",
+              padding: "0.875rem 1rem",
+              fontSize: "1rem",
+              border: "2px solid #e2e8f0",
+              borderRadius: "12px",
+              outline: "none",
+              transition: "border-color 0.2s",
+              boxSizing: "border-box",
+              marginBottom: "1rem",
             }}
           />
           <button
             type="submit"
             disabled={submitting}
             style={{
-              padding: '0.75rem 1.5rem',
-              fontSize: '1rem',
-              fontWeight: '600',
-              color: '#fff',
-              background: '#3b82f6',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: submitting ? 'not-allowed' : 'pointer',
-              opacity: submitting ? 0.6 : 1,
+              width: "100%",
+              padding: "0.875rem",
+              fontSize: "1rem",
+              fontWeight: 600,
+              color: "#fff",
+              background: submitting ? "#a0aec0" : "linear-gradient(135deg, #68d391, #48bb78)",
+              border: "none",
+              borderRadius: "12px",
+              cursor: submitting ? "not-allowed" : "pointer",
+              transition: "all 0.2s",
+              boxShadow: "0 4px 12px rgba(72, 187, 120, 0.3)",
             }}
           >
-            {submitting ? '提交中...' : 'Commit'}
+            {submitting ? "提交中..." : "✨ 参与排行"}
           </button>
+          {message && (
+            <p style={{
+              marginTop: "1rem",
+              padding: "0.75rem",
+              background: message.startsWith("✅") ? "#f0fff4" : "#fff5f5",
+              borderRadius: "10px",
+              color: message.startsWith("✅") ? "#2f855a" : "#c53030",
+              textAlign: "center",
+              fontSize: "0.9rem",
+            }}>
+              {message}
+            </p>
+          )}
         </form>
 
-        {message && (
-          <p style={{ marginTop: '1rem', padding: '0.75rem', background: '#fff', borderRadius: '8px', color: '#333' }}>
-            {message}
-          </p>
-        )}
+        {/* 排行榜 */}
+        <div style={{
+          background: "white",
+          borderRadius: "20px",
+          padding: "1.5rem",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+        }}>
+          <h2 style={{
+            fontSize: "1.1rem",
+            fontWeight: 600,
+            color: "#2d3748",
+            marginBottom: "1rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}>
+            🏆 参与排行
+          </h2>
+          
+          {loading ? (
+            <p style={{ textAlign: "center", color: "#a0aec0", padding: "2rem" }}>
+              加载中...
+            </p>
+          ) : leaderboard.length === 0 ? (
+            <p style={{ textAlign: "center", color: "#a0aec0", padding: "2rem" }}>
+              还没有人参与，快来留言吧！
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {leaderboard.map((entry, index) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0.875rem 1rem",
+                    background: index === 0 ? "linear-gradient(135deg, #fef3c7, #fde68a)" :
+                               index === 1 ? "linear-gradient(135deg, #f3f4f6, #e5e7eb)" :
+                               index === 2 ? "linear-gradient(135deg, #fef3c7, #fde68a)" :
+                               "#f7fafc",
+                    borderRadius: "12px",
+                    border: index < 3 ? "2px solid rgba(0,0,0,0.05)" : "none",
+                  }}
+                >
+                  <span style={{
+                    fontSize: "1.2rem",
+                    fontWeight: 700,
+                    width: "2rem",
+                    textAlign: "center",
+                    color: index === 0 ? "#d97706" : index < 3 ? "#92400e" : "#a0aec0",
+                  }}>
+                    {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
+                  </span>
+                  <span style={{
+                    flex: 1,
+                    fontSize: "1rem",
+                    fontWeight: 500,
+                    color: "#2d3748",
+                    marginLeft: "0.5rem",
+                  }}>
+                    {entry.name}
+                  </span>
+                  <span style={{
+                    fontSize: "0.8rem",
+                    color: "#a0aec0",
+                  }}>
+                    {new Date(entry.created_at).toLocaleString("zh-CN", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p style={{
+          textAlign: "center",
+          marginTop: "1.5rem",
+          color: "#a0aec0",
+          fontSize: "0.8rem",
+        }}>
+          共 {leaderboard.length} 人参与 · 数据实时同步
+        </p>
       </div>
-    </main>
+    </div>
   );
 }
