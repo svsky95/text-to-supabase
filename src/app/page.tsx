@@ -22,7 +22,7 @@ export default function Home() {
       .from("text_entries")
       .select("id, name, created_at")
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(3);
 
     if (!error && data) {
       setLeaderboard(data as Entry[]);
@@ -191,7 +191,7 @@ export default function Home() {
                     textAlign: "center",
                     color: index === 0 ? "#d97706" : index < 3 ? "#92400e" : "#a0aec0",
                   }}>
-                    #{entry.id}
+                    {index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}
                   </span>
                   <span style={{
                     flex: 1,
@@ -225,7 +225,7 @@ export default function Home() {
           color: "#a0aec0",
           fontSize: "0.8rem",
         }}>
-          共 {leaderboard.length} 人参与 · 数据实时同步
+          共 {leaderboard.length} 人参与
         </p>
       </div>
     </div>
