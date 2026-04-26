@@ -191,7 +191,7 @@ export default function Home() {
                     textAlign: "center",
                     color: index === 0 ? "#d97706" : index < 3 ? "#92400e" : "#a0aec0",
                   }}>
-                    {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
+                    #{entry.id}
                   </span>
                   <span style={{
                     flex: 1,
