@@ -59,22 +59,23 @@ export default function Home() {
     <div style={{
       minHeight: "100vh",
       background: "linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 50%, #f3e5f5 100%)",
-      padding: "2rem 1rem",
+      padding: "1rem",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      boxSizing: "border-box",
     }}>
       <div style={{ maxWidth: "480px", margin: "0 auto" }}>
         
         {/* 标题 */}
-        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
           <h1 style={{
-            fontSize: "1.8rem",
+            fontSize: "clamp(1.4rem, 5vw, 1.8rem)",
             fontWeight: 700,
             color: "#2d3748",
             marginBottom: "0.5rem",
           }}>
             🌿 很高兴来到我的测试页
           </h1>
-          <p style={{ color: "#718096", fontSize: "0.95rem" }}>
+          <p style={{ color: "#718096", fontSize: "0.9rem" }}>
             留下你的姓名，一起参与排行吧
           </p>
         </div>
@@ -82,10 +83,11 @@ export default function Home() {
         {/* 输入表单 */}
         <form onSubmit={handleSubmit} style={{
           background: "white",
-          borderRadius: "20px",
-          padding: "1.5rem",
+          borderRadius: "16px",
+          padding: "1.25rem",
           boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-          marginBottom: "1.5rem",
+          marginBottom: "1.25rem",
+          boxSizing: "border-box",
         }}>
           <input
             type="text"
@@ -143,12 +145,13 @@ export default function Home() {
         {/* 排行榜 */}
         <div style={{
           background: "white",
-          borderRadius: "20px",
-          padding: "1.5rem",
+          borderRadius: "16px",
+          padding: "1.25rem",
           boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+          boxSizing: "border-box",
         }}>
           <h2 style={{
-            fontSize: "1.1rem",
+            fontSize: "1rem",
             fontWeight: 600,
             color: "#2d3748",
             marginBottom: "1rem",
@@ -168,43 +171,50 @@ export default function Home() {
               还没有人参与，快来留言吧！
             </p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
               {leaderboard.map((entry, index) => (
                 <div
                   key={entry.id}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    padding: "0.875rem 1rem",
+                    padding: "0.75rem 0.875rem",
                     background: index === 0 ? "linear-gradient(135deg, #fef3c7, #fde68a)" :
                                index === 1 ? "linear-gradient(135deg, #f3f4f6, #e5e7eb)" :
                                index === 2 ? "linear-gradient(135deg, #fef3c7, #fde68a)" :
                                "#f7fafc",
                     borderRadius: "12px",
                     border: index < 3 ? "2px solid rgba(0,0,0,0.05)" : "none",
+                    boxSizing: "border-box",
                   }}
                 >
                   <span style={{
-                    fontSize: "1.2rem",
+                    fontSize: "1.1rem",
                     fontWeight: 700,
-                    width: "2rem",
+                    width: "2.2rem",
                     textAlign: "center",
                     color: index === 0 ? "#d97706" : index < 3 ? "#92400e" : "#a0aec0",
+                    flexShrink: 0,
                   }}>
-                    {index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}
+                    #{entry.id}
                   </span>
                   <span style={{
                     flex: 1,
-                    fontSize: "1rem",
+                    fontSize: "0.95rem",
                     fontWeight: 500,
                     color: "#2d3748",
                     marginLeft: "0.5rem",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                   }}>
                     {entry.name}
                   </span>
                   <span style={{
-                    fontSize: "0.8rem",
+                    fontSize: "0.75rem",
                     color: "#a0aec0",
+                    marginLeft: "0.5rem",
+                    flexShrink: 0,
                   }}>
                     {new Date(entry.created_at).toLocaleString("zh-CN", {
                       month: "short",
@@ -221,9 +231,9 @@ export default function Home() {
 
         <p style={{
           textAlign: "center",
-          marginTop: "1.5rem",
+          marginTop: "1.25rem",
           color: "#a0aec0",
-          fontSize: "0.8rem",
+          fontSize: "0.75rem",
         }}>
           共 {leaderboard.length} 人参与
         </p>
