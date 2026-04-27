@@ -39,25 +39,27 @@ function getGrowthScale(createdAt: string | undefined): number {
 // 创建3D文字标签（sprite方式）
 function createTextSprite(THREE: any, text: string) {
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 512;
+  canvas.height = 128;
   const ctx = canvas.getContext("2d")!;
 
-  ctx.clearRect(0, 0, 256, 64);
-  ctx.fillStyle = "rgba(0,0,0,0.7)";
-  ctx.roundRect(8, 8, 240, 48, 10);
+  ctx.clearRect(0, 0, 512, 128);
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.roundRect(12, 12, 488, 104, 16);
   ctx.fill();
 
-  ctx.font = "bold 28px sans-serif";
+  ctx.font = "bold 48px sans-serif";
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text.length > 10 ? text.substring(0, 10) + ".." : text, 128, 32);
+  ctx.fillText(text.length > 8 ? text.substring(0, 8) + ".." : text, 256, 64);
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
   const material = new THREE.SpriteMaterial({ map: texture });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(4, 1, 1);
+  sprite.scale.set(5, 1.25, 1);
 
   return sprite;
 }
@@ -333,10 +335,12 @@ export default function Home() {
       trunk.position.y = 1.5 * baseScale;
       group.add(trunk);
       [0, 1, 2].forEach((i) => {
-        group.add(new THREE.Mesh(
+        const cone = new THREE.Mesh(
           new THREE.ConeGeometry((2.5 - i * 0.5) * baseScale, (3 - i * 0.5) * baseScale, 6),
           new THREE.MeshLambertMaterial({ color: 0x228b22 })
-        )).position.y = (3 + i * 1.5) * baseScale;
+        );
+        cone.position.y = (3 + i * 1.5) * baseScale;
+        group.add(cone);
       });
     } else if (type === 1) {
       // 樱花
@@ -374,10 +378,12 @@ export default function Home() {
       group.add(trunk);
       const colors = [0xff4500, 0xff6600, 0xff8800];
       [0, 1, 2].forEach((i) => {
-        group.add(new THREE.Mesh(
+        const cone = new THREE.Mesh(
           new THREE.ConeGeometry((2 - i * 0.4) * baseScale, (2.5 - i * 0.3) * baseScale, 6),
           new THREE.MeshLambertMaterial({ color: colors[i] })
-        )).position.y = (3 + i * 1.2) * baseScale;
+        );
+        cone.position.y = (3 + i * 1.2) * baseScale;
+        group.add(cone);
       });
     } else if (type === 3) {
       // 松树
@@ -388,10 +394,12 @@ export default function Home() {
       trunk.position.y = 2.5 * baseScale;
       group.add(trunk);
       for (let i = 0; i < 4; i++) {
-        group.add(new THREE.Mesh(
+        const cone = new THREE.Mesh(
           new THREE.ConeGeometry((3 - i * 0.5) * baseScale, 2 * baseScale, 8),
           new THREE.MeshLambertMaterial({ color: 0x006400 })
-        )).position.y = (4 + i * 1.2) * baseScale;
+        );
+        cone.position.y = (4 + i * 1.2) * baseScale;
+        group.add(cone);
       }
     } else {
       // 棕榈
