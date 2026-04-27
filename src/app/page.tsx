@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 interface Tree {
   id: number;
@@ -11,161 +11,195 @@ interface Tree {
   tree_type: number;
 }
 
+// 懒加载的 supabase 客户端
+let supabaseClient: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient {
+  if (!supabaseClient) {
+    supabaseClient = createClient(
+      "https://hjejbcfrpnzslfoptfdu.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWpiY2ZycG56c2xmb3B0ZmR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTE2NDcsImV4cCI6MjA5MjUyNzY0N30.6Rk8xwjRj3YjZ_c9T5gQ9gY8W3xvJ5H7K4R5vB9yX1E"
+    );
+  }
+  return supabaseClient;
+}
+
 export default function Home() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [trees, setTrees] = useState<Tree[]>([]);
   const [treeCount, setTreeCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [threeLoaded, setThreeLoaded] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
+  const supabaseRef = useRef<SupabaseClient | null>(null);
 
-  // 加载 Three.js 并初始化场景
+  // 初始化 Supabase 客户端
   useEffect(() => {
-    const initScene = async () => {
-      // 动态加载 Three.js CDN
-      const THREE = await import("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js");
-      
-      // 如果场景已初始化，跳过
-      if (sceneRef.current) return;
+    supabaseRef.current = getSupabase();
+  }, []);
 
-      const container = canvasRef.current;
-      if (!container) return;
+  // 加载 Three.js CDN
+  useEffect(() => {
+    if ((window as any).THREE) {
+      setThreeLoaded(true);
+      return;
+    }
 
-      // 创建场景
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x87ceeb);
-      scene.fog = new THREE.Fog(0x87ceeb, 50, 150);
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+    script.async = true;
+    script.onload = () => {
+      setThreeLoaded(true);
+    };
+    document.head.appendChild(script);
+  }, []);
 
-      // 创建相机
-      const camera = new THREE.PerspectiveCamera(
-        60,
-        container.clientWidth / container.clientHeight,
-        0.1,
-        1000
-      );
-      camera.position.set(0, 30, 50);
-      camera.lookAt(0, 0, 0);
+  // 初始化场景
+  useEffect(() => {
+    if (!threeLoaded || !canvasRef.current || sceneRef.current) return;
+    initScene();
+  }, [threeLoaded]);
 
-      // 创建渲染器
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const initScene = () => {
+    const THREE = (window as any).THREE;
+    if (!THREE || sceneRef.current) return;
+
+    const container = canvasRef.current;
+    if (!container) return;
+
+    // 创建场景
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.Fog(0x87ceeb, 50, 150);
+
+    // 创建相机
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(0, 30, 50);
+    camera.lookAt(0, 0, 0);
+
+    // 创建渲染器
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // 添加灯光
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(50, 100, 50);
+    scene.add(directionalLight);
+
+    // 创建地面
+    const groundGeometry = new THREE.PlaneGeometry(200, 200);
+    const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x90ee90 });
+    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
+
+    // 存储引用
+    sceneRef.current = { THREE, scene, camera, renderer, treeMeshes: [] };
+
+    // 渲染循环
+    const animate = () => {
+      requestAnimationFrame(animate);
+
+      // 树轻微摇摆
+      const treeMeshes = sceneRef.current?.treeMeshes || [];
+      treeMeshes.forEach((mesh: any, i: number) => {
+        mesh.rotation.z = Math.sin(Date.now() * 0.001 + i) * 0.02;
+      });
+
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    // 窗口大小调整
+    const handleResize = () => {
+      if (!container || !sceneRef.current) return;
+      const { camera, renderer } = sceneRef.current;
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
-      renderer.setPixelRatio(window.devicePixelRatio);
-      container.appendChild(renderer.domElement);
+    };
+    window.addEventListener("resize", handleResize);
 
-      // 添加灯光
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-      scene.add(ambientLight);
+    // 简单鼠标控制相机
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let cameraAngle = { x: 0, y: 0.3 };
 
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      directionalLight.position.set(50, 100, 50);
-      scene.add(directionalLight);
-
-      // 创建地面
-      const groundGeometry = new THREE.PlaneGeometry(200, 200);
-      const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x90ee90 });
-      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-      ground.rotation.x = -Math.PI / 2;
-      ground.position.y = 0;
-      scene.add(ground);
-
-      // 存储引用
-      sceneRef.current = { THREE, scene, camera, renderer, trees: [] };
-
-      // 渲染循环
-      const animate = () => {
-        requestAnimationFrame(animate);
-        
-        // 树轻微摇摆
-        const treeMeshes = sceneRef.current?.treeMeshes || [];
-        treeMeshes.forEach((mesh: any, i: number) => {
-          mesh.rotation.z = Math.sin(Date.now() * 0.001 + i) * 0.02;
-        });
-        
-        renderer.render(scene, camera);
-      };
-      animate();
-
-      // 窗口大小调整
-      const handleResize = () => {
-        if (!container || !sceneRef.current) return;
-        const { camera, renderer } = sceneRef.current;
-        camera.aspect = container.clientWidth / container.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(container.clientWidth, container.clientHeight);
-      };
-      window.addEventListener("resize", handleResize);
-
-      // 简单鼠标控制相机
-      let isDragging = false;
-      let previousMousePosition = { x: 0, y: 0 };
-      let cameraAngle = { x: 0, y: 0.3 };
-
-      const onMouseDown = (e: MouseEvent) => {
-        isDragging = true;
-        previousMousePosition = { x: e.clientX, y: e.clientY };
-      };
-
-      const onMouseMove = (e: MouseEvent) => {
-        if (!isDragging || !sceneRef.current) return;
-        const deltaX = e.clientX - previousMousePosition.x;
-        const deltaY = e.clientY - previousMousePosition.y;
-        cameraAngle.x += deltaX * 0.005;
-        cameraAngle.y = Math.max(0.1, Math.min(0.8, cameraAngle.y + deltaY * 0.005));
-        previousMousePosition = { x: e.clientX, y: e.clientY };
-        
-        const { camera } = sceneRef.current;
-        const distance = 60;
-        camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
-        camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
-        camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
-        camera.lookAt(0, 5, 0);
-      };
-
-      const onMouseUp = () => {
-        isDragging = false;
-      };
-
-      container.addEventListener("mousedown", onMouseDown);
-      container.addEventListener("mousemove", onMouseMove);
-      container.addEventListener("mouseup", onMouseUp);
-      container.addEventListener("mouseleave", onMouseUp);
-
-      // 触摸支持
-      container.addEventListener("touchstart", (e: TouchEvent) => {
-        if (e.touches.length === 1) {
-          isDragging = true;
-          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        }
-      });
-      container.addEventListener("touchmove", (e: TouchEvent) => {
-        if (!isDragging || !sceneRef.current || e.touches.length !== 1) return;
-        const deltaX = e.touches[0].clientX - previousMousePosition.x;
-        const deltaY = e.touches[0].clientY - previousMousePosition.y;
-        cameraAngle.x += deltaX * 0.005;
-        cameraAngle.y = Math.max(0.1, Math.min(0.8, cameraAngle.y + deltaY * 0.005));
-        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        
-        const { camera } = sceneRef.current;
-        const distance = 60;
-        camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
-        camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
-        camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
-        camera.lookAt(0, 5, 0);
-      });
-      container.addEventListener("touchend", () => { isDragging = false; });
-
-      // 加载初始树木
-      fetchTrees();
+    const onMouseDown = (e: MouseEvent) => {
+      isDragging = true;
+      previousMousePosition = { x: e.clientX, y: e.clientY };
     };
 
-    initScene();
-  }, []);
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !sceneRef.current) return;
+      const deltaX = e.clientX - previousMousePosition.x;
+      const deltaY = e.clientY - previousMousePosition.y;
+      cameraAngle.x += deltaX * 0.005;
+      cameraAngle.y = Math.max(0.1, Math.min(0.8, cameraAngle.y + deltaY * 0.005));
+      previousMousePosition = { x: e.clientX, y: e.clientY };
+
+      const { camera } = sceneRef.current;
+      const distance = 60;
+      camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+      camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
+      camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+      camera.lookAt(0, 5, 0);
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+    };
+
+    container.addEventListener("mousedown", onMouseDown);
+    container.addEventListener("mousemove", onMouseMove);
+    container.addEventListener("mouseup", onMouseUp);
+    container.addEventListener("mouseleave", onMouseUp);
+
+    // 触摸支持
+    container.addEventListener("touchstart", (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    });
+    container.addEventListener("touchmove", (e: TouchEvent) => {
+      if (!isDragging || !sceneRef.current || e.touches.length !== 1) return;
+      const deltaX = e.touches[0].clientX - previousMousePosition.x;
+      const deltaY = e.touches[0].clientY - previousMousePosition.y;
+      cameraAngle.x += deltaX * 0.005;
+      cameraAngle.y = Math.max(0.1, Math.min(0.8, cameraAngle.y + deltaY * 0.005));
+      previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+      const { camera } = sceneRef.current;
+      const distance = 60;
+      camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+      camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
+      camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+      camera.lookAt(0, 5, 0);
+    });
+    container.addEventListener("touchend", () => { isDragging = false; });
+
+    // 加载初始树木
+    fetchTrees();
+  };
 
   // 获取森林中的所有树
   const fetchTrees = async () => {
-    const { data, error } = await supabase
+    if (!supabaseRef.current) return;
+    const { data, error } = await supabaseRef.current
       .from("forest")
       .select("id, name, position_x, position_z, tree_type")
       .order("id", { ascending: true });
@@ -175,14 +209,13 @@ export default function Home() {
       setTreeCount(data.length);
       addTreesToScene(data as Tree[]);
     }
-    setLoading(false);
   };
 
   // 添加树到 3D 场景
   const addTreesToScene = (treeData: Tree[]) => {
     if (!sceneRef.current) return;
     const { THREE, scene } = sceneRef.current;
-    
+
     // 清除旧树
     if (sceneRef.current.treeMeshes) {
       sceneRef.current.treeMeshes.forEach((mesh: any) => scene.remove(mesh));
@@ -190,49 +223,15 @@ export default function Home() {
     sceneRef.current.treeMeshes = [];
 
     treeData.forEach((tree) => {
-      const treeGroup = new THREE.Group();
-
-      // 随机树类型（不同大小）
-      const scale = 0.5 + tree.tree_type * 0.3;
-
-      // 树干
-      const trunkGeometry = new THREE.CylinderGeometry(0.3 * scale, 0.5 * scale, 3 * scale, 6);
-      const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
-      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-      trunk.position.y = 1.5 * scale;
-      treeGroup.add(trunk);
-
-      // 树冠（多层三角形）
-      const colors = [0x228b22, 0x32cd32, 0x006400];
-      const color = colors[tree.tree_type % 3];
-      
-      for (let i = 0; i < 3; i++) {
-        const coneGeometry = new THREE.ConeGeometry(
-          (2.5 - i * 0.5) * scale,
-          (3 - i * 0.5) * scale,
-          6
-        );
-        const coneMaterial = new THREE.MeshLambertMaterial({ color });
-        const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-        cone.position.y = (3 + i * 1.5) * scale;
-        treeGroup.add(cone);
-      }
-
+      const treeGroup = createTree(tree, THREE);
       treeGroup.position.set(tree.position_x, 0, tree.position_z);
       scene.add(treeGroup);
       sceneRef.current.treeMeshes.push(treeGroup);
     });
   };
 
-  // 添加单棵树到场景
-  const addSingleTreeToScene = (tree: Tree) => {
-    if (!sceneRef.current) return;
-    const { THREE, scene } = sceneRef.current;
-    
-    if (!sceneRef.current.treeMeshes) {
-      sceneRef.current.treeMeshes = [];
-    }
-
+  // 创建单棵树
+  const createTree = (tree: Tree, THREE: any) => {
     const treeGroup = new THREE.Group();
     const scale = 0.5 + tree.tree_type * 0.3;
 
@@ -243,10 +242,10 @@ export default function Home() {
     trunk.position.y = 1.5 * scale;
     treeGroup.add(trunk);
 
-    // 树冠
+    // 树冠（多层三角形）
     const colors = [0x228b22, 0x32cd32, 0x006400];
     const color = colors[tree.tree_type % 3];
-    
+
     for (let i = 0; i < 3; i++) {
       const coneGeometry = new THREE.ConeGeometry(
         (2.5 - i * 0.5) * scale,
@@ -259,12 +258,25 @@ export default function Home() {
       treeGroup.add(cone);
     }
 
+    return treeGroup;
+  };
+
+  // 添加单棵树到场景（带动画）
+  const addSingleTreeToScene = (tree: Tree) => {
+    if (!sceneRef.current) return;
+    const { THREE, scene } = sceneRef.current;
+
+    if (!sceneRef.current.treeMeshes) {
+      sceneRef.current.treeMeshes = [];
+    }
+
+    const treeGroup = createTree(tree, THREE);
     treeGroup.position.set(tree.position_x, 0, tree.position_z);
-    
+
     // 种植动画：从地下钻出来
     treeGroup.scale.y = 0;
     treeGroup.position.y = -2;
-    
+
     scene.add(treeGroup);
     sceneRef.current.treeMeshes.push(treeGroup);
 
@@ -289,13 +301,13 @@ export default function Home() {
     const rows = Math.ceil(Math.sqrt(index + 1));
     const perRow = Math.ceil(Math.sqrt(index + 1));
     const spacing = 4;
-    
+
     const row = Math.floor(index / perRow);
     const col = index % perRow;
-    
+
     const startX = -((perRow - 1) * spacing) / 2;
     const startZ = -((rows - 1) * spacing) / 2;
-    
+
     return {
       x: startX + col * spacing,
       z: startZ + row * spacing,
@@ -305,7 +317,7 @@ export default function Home() {
   // 提交名字种树
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !supabaseRef.current) return;
 
     setSubmitting(true);
     setMessage("");
@@ -313,7 +325,7 @@ export default function Home() {
     const newPosition = calculatePosition(treeCount);
     const treeType = Math.floor(Math.random() * 3);
 
-    const { error } = await supabase.from("forest").insert([
+    const { error } = await supabaseRef.current.from("forest").insert([
       {
         name: name.trim(),
         position_x: newPosition.x,
@@ -327,7 +339,7 @@ export default function Home() {
     } else {
       setName("");
       setMessage("🌱 " + name.trim() + " 种下了一棵树！");
-      
+
       // 添加新树到场景
       const newTree: Tree = {
         id: treeCount + 1,
@@ -454,7 +466,7 @@ export default function Home() {
           color: "#a0aec0",
           fontSize: "0.75rem",
         }}>
-          拖动鼠标旋转视角 | 滚动缩放
+          拖动鼠标旋转视角
         </p>
       </div>
     </div>
