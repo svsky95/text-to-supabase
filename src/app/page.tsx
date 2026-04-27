@@ -13,7 +13,7 @@ interface Tree {
 }
 
 const TREE_TYPES = 5;
-const TREE_SPACING = 7; // 树间距
+const TREE_SPACING = 8;
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -27,40 +27,42 @@ function getSupabase(): SupabaseClient {
   return supabaseClient;
 }
 
-// 计算树的生长倍数（每2小时长大一点，最多2倍）
 function getGrowthScale(createdAt: string | undefined): number {
   if (!createdAt) return 1;
-  const ageMs = Date.now() - new Date(createdAt).getTime();
-  const ageHours = ageMs / (1000 * 60 * 60);
-  const growthLevel = Math.floor(ageHours / 2); // 每2小时一级
-  return Math.min(1 + growthLevel * 0.15, 2.5); // 每级+15%，最多2.5倍
+  const ageHours = (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60);
+  const level = Math.floor(ageHours / 2);
+  return Math.min(1 + level * 0.2, 3.0);
 }
 
-// 创建3D文字标签（sprite方式）
 function createTextSprite(THREE: any, text: string) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 128;
   const ctx = canvas.getContext("2d")!;
-
   ctx.clearRect(0, 0, 512, 128);
-  ctx.fillStyle = "rgba(0,0,0,0.75)";
-  ctx.roundRect(12, 12, 488, 104, 16);
-  ctx.fill();
 
-  ctx.font = "bold 48px sans-serif";
-  ctx.fillStyle = "#ffffff";
+  // 气泡背景
+  ctx.shadowColor = "rgba(0,0,0,0.3)";
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = "rgba(30,80,30,0.88)";
+  ctx.roundRect(8, 8, 496, 112, 20);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // 名字
+  ctx.font = "bold 44px sans-serif";
+  ctx.fillStyle = "#e8f5e9";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text.length > 8 ? text.substring(0, 8) + ".." : text, 256, 64);
+  const displayName = text.length > 9 ? text.substring(0, 9) + ".." : text;
+  ctx.fillText(displayName, 256, 64);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  const material = new THREE.SpriteMaterial({ map: texture });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(5, 1.25, 1);
-
+  const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(6, 1.5, 1);
   return sprite;
 }
 
@@ -71,203 +73,223 @@ export default function Home() {
   const [trees, setTrees] = useState<Tree[]>([]);
   const [treeCount, setTreeCount] = useState(0);
   const [threeLoaded, setThreeLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
   const supabaseRef = useRef<SupabaseClient | null>(null);
-  const growthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const growthTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 初始化 Supabase
   useEffect(() => {
     supabaseRef.current = getSupabase();
   }, []);
 
-  // 加载 Three.js
   useEffect(() => {
-    if ((window as any).THREE) {
-      setThreeLoaded(true);
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-    script.async = true;
-    script.onload = () => setThreeLoaded(true);
-    document.head.appendChild(script);
+    if ((window as any).THREE) { setThreeLoaded(true); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+    s.async = true;
+    s.onload = () => setThreeLoaded(true);
+    document.head.appendChild(s);
   }, []);
 
-  // 初始化场景
   useEffect(() => {
     if (!threeLoaded || !canvasRef.current || sceneRef.current) return;
     initScene();
-
-    return () => {
-      if (growthTimerRef.current) clearInterval(growthTimerRef.current);
-    };
+    return () => { if (growthTimer.current) clearInterval(growthTimer.current); };
   }, [threeLoaded]);
 
   const initScene = () => {
     const THREE = (window as any).THREE;
     if (!THREE || sceneRef.current) return;
-
     const container = canvasRef.current!;
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 50, 250);
+    // --- Sky gradient background via shader ---
+    const skyCanvas = document.createElement("canvas");
+    skyCanvas.width = 2;
+    skyCanvas.height = 512;
+    const skyCtx = skyCanvas.getContext("2d")!;
+    const grad = skyCtx.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, "#1a237e");
+    grad.addColorStop(0.4, "#3949ab");
+    grad.addColorStop(0.7, "#7986cb");
+    grad.addColorStop(1, "#c5cae9");
+    skyCtx.fillStyle = grad;
+    skyCtx.fillRect(0, 0, 2, 512);
+    const skyTex = new THREE.CanvasTexture(skyCanvas);
+    skyTex.magFilter = THREE.LinearFilter;
 
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
-    camera.position.set(0, 40, 60);
+    const scene = new THREE.Scene();
+    scene.background = skyTex;
+    scene.fog = new THREE.FogExp2(0x7986cb, 0.008);
+
+    const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 1000);
+    camera.position.set(0, 45, 70);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(50, 100, 50);
-    scene.add(dirLight);
+    // Sun
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(6, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xfff9c4 })
+    );
+    sunMesh.position.set(60, 80, -80);
+    scene.add(sunMesh);
 
-    // 地面
+    // Sun glow
+    for (let i = 3; i >= 1; i--) {
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(6 + i * 3, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0xfff59d, transparent: true, opacity: 0.06 / i })
+      );
+      glow.position.copy(sunMesh.position);
+      scene.add(glow);
+    }
+
+    // Ambient light (soft blue)
+    scene.add(new THREE.AmbientLight(0xb3d9ff, 0.5));
+
+    // Sun directional light
+    const sunLight = new THREE.DirectionalLight(0xfffbe6, 1.0);
+    sunLight.position.set(60, 80, -80);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 300;
+    sunLight.shadow.camera.left = -80;
+    sunLight.shadow.camera.right = 80;
+    sunLight.shadow.camera.top = 80;
+    sunLight.shadow.camera.bottom = -80;
+    scene.add(sunLight);
+
+    // Hemisphere light for natural sky bounce
+    scene.add(new THREE.HemisphereLight(0x87ceeb, 0x3d8b37, 0.4));
+
+    // Ground - beautiful grass texture
+    const groundCanvas = document.createElement("canvas");
+    groundCanvas.width = 512;
+    groundCanvas.height = 512;
+    const gctx = groundCanvas.getContext("2d")!;
+    gctx.fillStyle = "#4caf50";
+    gctx.fillRect(0, 0, 512, 512);
+    // Add subtle noise
+    for (let i = 0; i < 3000; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512;
+      const g = Math.random() * 40 + 60;
+      gctx.fillStyle = `rgba(${Math.random() > 0.5 ? 76 : 56},${g},${Math.random() > 0.5 ? 50 : 30},0.15)`;
+      gctx.fillRect(x, y, 2, 2);
+    }
+    const groundTex = new THREE.CanvasTexture(groundCanvas);
+    groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+    groundTex.repeat.set(12, 12);
+
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(250, 250),
-      new THREE.MeshLambertMaterial({ color: 0x7cfc00 })
+      new THREE.PlaneGeometry(300, 300),
+      new THREE.MeshLambertMaterial({ map: groundTex })
     );
     ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
     scene.add(ground);
 
-    // 装饰（花丛，更少避免遮挡标签）
-    const decorGroup = new THREE.Group();
-    for (let i = 0; i < 150; i++) {
-      const x = (Math.random() - 0.5) * 220;
-      const z = (Math.random() - 0.5) * 220;
-      if (Math.random() > 0.4) {
-        const grass = new THREE.Mesh(
-          new THREE.ConeGeometry(0.12, 0.3 + Math.random() * 0.3, 4),
-          new THREE.MeshLambertMaterial({
-            color: new THREE.Color().setHSL(0.3, 0.7, 0.25 + Math.random() * 0.15)
-          })
-        );
-        grass.position.set(x, 0.15, z);
-        decorGroup.add(grass);
+    // Small decorative plants / flowers
+    const decorMat = new THREE.MeshLambertMaterial({ color: 0x66bb6a });
+    const flowerColors = [0xffeb3b, 0xff4081, 0xff9800, 0xe040fb, 0x40c4ff];
+    for (let i = 0; i < 200; i++) {
+      const x = (Math.random() - 0.5) * 260;
+      const z = (Math.random() - 0.5) * 260;
+      if (Math.random() > 0.35) {
+        const h = 0.15 + Math.random() * 0.25;
+        const g = new THREE.Mesh(new THREE.ConeGeometry(0.08, h, 4), decorMat);
+        g.position.set(x, h / 2, z);
+        scene.add(g);
       } else {
-        const stem = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.03, 0.03, 0.3, 4),
-          new THREE.MeshLambertMaterial({ color: 0x228b22 })
-        );
-        stem.position.set(x, 0.15, z);
-        decorGroup.add(stem);
-        const flower = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 6, 6),
-          new THREE.MeshLambertMaterial({
-            color: new THREE.Color().setHSL(Math.random() * 0.25 + 0.85, 0.8, 0.6)
-          })
-        );
-        flower.position.set(x, 0.4, z);
-        decorGroup.add(flower);
+        const fc = flowerColors[Math.floor(Math.random() * flowerColors.length)];
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.25, 4), decorMat);
+        stem.position.set(x, 0.125, z);
+        scene.add(stem);
+        const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshLambertMaterial({ color: fc }));
+        bloom.position.set(x, 0.32, z);
+        scene.add(bloom);
       }
     }
-    scene.add(decorGroup);
 
     sceneRef.current = { THREE, scene, camera, renderer, treeMeshes: [], treeLabels: [], treeData: new Map(), treeBaseScale: new Map() };
 
-    // 渲染循环
+    // Render loop
     const animate = () => {
       requestAnimationFrame(animate);
       const ref = sceneRef.current;
       if (!ref) return;
-
+      const t = Date.now() * 0.001;
       ref.treeMeshes.forEach((mesh: any, i: number) => {
-        mesh.rotation.z = Math.sin(Date.now() * 0.001 + i * 0.5) * 0.025;
+        mesh.rotation.z = Math.sin(t + i * 0.7) * 0.018;
       });
-
+      // Make labels always face camera
+      ref.treeLabels.forEach((label: any) => {
+        label.lookAt(ref.camera.position);
+      });
       renderer.render(scene, camera);
     };
     animate();
 
-    // 每2小时更新树木大小
-    growthTimerRef.current = setInterval(() => {
-      updateTreeGrowth();
-    }, 1000 * 60 * 60 * 2); // 2小时
+    // Grow timer - every 2 hours (here we simulate: 30s = 1 level for testing)
+    growthTimer.current = setInterval(() => updateTreeGrowth(), 30000);
 
-    const handleResize = () => {
+    window.addEventListener("resize", () => {
       if (!container || !sceneRef.current) return;
       const { camera, renderer } = sceneRef.current;
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
-    };
-    window.addEventListener("resize", handleResize);
+    });
 
-    // 鼠标控制
-    let isDragging = false;
-    let prevMouse = { x: 0, y: 0 };
-    let cameraAngle = { x: 0, y: 0.38 };
+    // Camera controls
+    let dragging = false, prevX = 0, prevY = 0;
+    let camAngle = { x: 0, y: 0.4 };
 
-    const onMouseDown = (e: MouseEvent) => {
-      isDragging = true;
-      prevMouse = { x: e.clientX, y: e.clientY };
-    };
-
-    const updateCamera = () => {
+    const applyCam = () => {
       const ref = sceneRef.current;
       if (!ref) return;
       const { camera } = ref;
-      const distance = 75;
-      camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
-      camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
-      camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
-      camera.lookAt(0, 5, 0);
+      const d = 85;
+      camera.position.x = Math.sin(camAngle.x) * d * Math.cos(camAngle.y);
+      camera.position.y = d * Math.sin(camAngle.y) + 8;
+      camera.position.z = Math.cos(camAngle.x) * d * Math.cos(camAngle.y);
+      camera.lookAt(0, 3, 0);
     };
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      const deltaX = e.clientX - prevMouse.x;
-      const deltaY = e.clientY - prevMouse.y;
-      cameraAngle.x += deltaX * 0.004;
-      cameraAngle.y = Math.max(0.1, Math.min(0.65, cameraAngle.y + deltaY * 0.004));
-      prevMouse = { x: e.clientX, y: e.clientY };
-      updateCamera();
-    };
-
-    const onMouseUp = () => { isDragging = false; };
-
-    container.addEventListener("mousedown", onMouseDown);
-    container.addEventListener("mousemove", onMouseMove);
-    container.addEventListener("mouseup", onMouseUp);
-    container.addEventListener("mouseleave", onMouseUp);
-
-    // 触摸
-    container.addEventListener("touchstart", (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        isDragging = true;
-        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      }
+    container.addEventListener("mousedown", (e: MouseEvent) => { dragging = true; prevX = e.clientX; prevY = e.clientY; });
+    container.addEventListener("mousemove", (e: MouseEvent) => {
+      if (!dragging) return;
+      camAngle.x += (e.clientX - prevX) * 0.003;
+      camAngle.y = Math.max(0.08, Math.min(0.72, camAngle.y + (e.clientY - prevY) * 0.003));
+      prevX = e.clientX; prevY = e.clientY;
+      applyCam();
     });
+    container.addEventListener("mouseup", () => { dragging = false; });
+    container.addEventListener("touchstart", (e: TouchEvent) => { if (e.touches.length === 1) { dragging = true; prevX = e.touches[0].clientX; prevY = e.touches[0].clientY; } });
     container.addEventListener("touchmove", (e: TouchEvent) => {
-      if (!isDragging || e.touches.length !== 1) return;
-      const deltaX = e.touches[0].clientX - prevMouse.x;
-      const deltaY = e.touches[0].clientY - prevMouse.y;
-      cameraAngle.x += deltaX * 0.004;
-      cameraAngle.y = Math.max(0.1, Math.min(0.65, cameraAngle.y + deltaY * 0.004));
-      prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      updateCamera();
+      if (!dragging || e.touches.length !== 1) return;
+      camAngle.x += (e.touches[0].clientX - prevX) * 0.003;
+      camAngle.y = Math.max(0.08, Math.min(0.72, camAngle.y + (e.touches[0].clientY - prevY) * 0.003));
+      prevX = e.touches[0].clientX; prevY = e.touches[0].clientY;
+      applyCam();
     });
-    container.addEventListener("touchend", () => { isDragging = false; });
+    container.addEventListener("touchend", () => { dragging = false; });
 
+    applyCam();
     fetchTrees();
+    setLoaded(true);
   };
 
-  // 更新树木生长
   const updateTreeGrowth = () => {
     const ref = sceneRef.current;
     if (!ref) return;
-
     ref.treeMeshes.forEach((mesh: any) => {
       const tree = ref.treeData.get(mesh);
       if (!tree) return;
@@ -282,7 +304,6 @@ export default function Home() {
       .from("forest")
       .select("id, name, position_x, position_z, tree_type, created_at")
       .order("id", { ascending: true });
-
     if (data) {
       setTrees(data as Tree[]);
       setTreeCount(data.length);
@@ -294,327 +315,321 @@ export default function Home() {
     const ref = sceneRef.current;
     if (!ref) return;
     const { THREE, scene } = ref;
-
-    // 清除旧树和标签
     ref.treeMeshes.forEach((m: any) => scene.remove(m));
     ref.treeLabels.forEach((l: any) => scene.remove(l));
-    ref.treeMeshes = [];
-    ref.treeLabels = [];
-    ref.treeData.clear();
-    ref.treeBaseScale.clear();
+    ref.treeMeshes = []; ref.treeLabels = [];
+    ref.treeData.clear(); ref.treeBaseScale.clear();
 
     treeData.forEach((tree) => {
-      const group = createTreeGroup(tree, THREE);
-      const baseScale = getGrowthScale(tree.created_at);
-      group.scale.set(baseScale, baseScale, baseScale);
-      group.position.set(tree.position_x, 0, tree.position_z);
-      scene.add(group);
-      ref.treeMeshes.push(group);
-      ref.treeData.set(group, tree);
-      ref.treeBaseScale.set(group, baseScale);
+      const g = buildTree(tree, THREE);
+      const bs = getGrowthScale(tree.created_at);
+      g.scale.set(bs, bs, bs);
+      g.position.set(tree.position_x, 0, tree.position_z);
+      g.traverse((c: any) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      scene.add(g);
+      ref.treeMeshes.push(g);
+      ref.treeData.set(g, tree);
+      ref.treeBaseScale.set(g, bs);
 
-      // 名字标签
-      const label = createTextSprite(THREE, tree.name);
-      label.position.set(tree.position_x, 8 * baseScale, tree.position_z);
-      scene.add(label);
-      ref.treeLabels.push(label);
+      const lbl = createTextSprite(THREE, tree.name);
+      lbl.position.set(tree.position_x, 12 * bs, tree.position_z);
+      scene.add(lbl);
+      ref.treeLabels.push(lbl);
     });
   };
 
-  const createTreeGroup = (tree: Tree, THREE: any) => {
+  const buildTree = (tree: Tree, THREE: any): any => {
     const group = new THREE.Group();
-    const baseScale = 0.8;
     const type = tree.tree_type % TREE_TYPES;
 
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4037 });
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.45, 3.5, 8), trunkMat);
+    trunk.position.y = 1.75;
+    trunk.castShadow = true;
+    group.add(trunk);
+
     if (type === 0) {
-      // 普通绿树
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3 * baseScale, 0.5 * baseScale, 3 * baseScale, 6),
-        new THREE.MeshLambertMaterial({ color: 0x8b4513 })
-      );
-      trunk.position.y = 1.5 * baseScale;
-      group.add(trunk);
-      [0, 1, 2].forEach((i) => {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((2.5 - i * 0.5) * baseScale, (3 - i * 0.5) * baseScale, 6),
-          new THREE.MeshLambertMaterial({ color: 0x228b22 })
-        );
-        cone.position.y = (3 + i * 1.5) * baseScale;
-        group.add(cone);
-      });
+      // 圆润绿树 - 层次分明的大树冠
+      const crownMat = new THREE.MeshLambertMaterial({ color: 0x2e7d32 });
+      const crown1 = new THREE.Mesh(new THREE.SphereGeometry(2.8, 8, 8), crownMat);
+      crown1.position.y = 6; crown1.scale.set(1, 0.85, 1);
+      group.add(crown1);
+      const crown2 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 8), new THREE.MeshLambertMaterial({ color: 0x388e3c }));
+      crown2.position.y = 7.5; crown2.scale.set(1, 0.9, 1);
+      group.add(crown2);
+      const crown3 = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 8), new THREE.MeshLambertMaterial({ color: 0x43a047 }));
+      crown3.position.y = 8.8;
+      group.add(crown3);
+      // 树干纹理 - 苔藓色底部
+      const moss = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.5, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0x33691e }));
+      moss.position.y = 0.25;
+      group.add(moss);
     } else if (type === 1) {
-      // 樱花
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.25 * baseScale, 0.4 * baseScale, 2 * baseScale, 6),
-        new THREE.MeshLambertMaterial({ color: 0x654321 })
-      );
-      trunk.position.y = baseScale;
-      group.add(trunk);
-      const crown = new THREE.Mesh(
-        new THREE.SphereGeometry(2.5 * baseScale, 8, 8),
-        new THREE.MeshLambertMaterial({ color: 0xffb7c5 })
-      );
-      crown.position.y = 3 * baseScale;
-      group.add(crown);
-      for (let i = 0; i < 15; i++) {
-        const petal = new THREE.Mesh(
-          new THREE.SphereGeometry(0.15 * baseScale, 4, 4),
-          new THREE.MeshLambertMaterial({ color: 0xffd1dc })
-        );
-        petal.position.set(
-          (Math.random() - 0.5) * 4 * baseScale,
-          3 * baseScale + (Math.random() - 0.5) * 3 * baseScale,
-          (Math.random() - 0.5) * 4 * baseScale
-        );
-        group.add(petal);
+      // 樱花树 - 粉色花冠
+      const trunk2 = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.38, 2.2, 8), new THREE.MeshLambertMaterial({ color: 0x4e342e }));
+      trunk2.position.y = 1.1;
+      group.add(trunk2);
+      const colors2 = [0xf48fb1, 0xf8bbd9, 0xffc0de];
+      for (let i = 0; i < 3; i++) {
+        const c = new THREE.Mesh(new THREE.SphereGeometry(2.5 - i * 0.5, 8, 8), new THREE.MeshLambertMaterial({ color: colors2[i] }));
+        c.position.y = 3.5 + i * 1.5;
+        c.castShadow = true;
+        group.add(c);
+      }
+      // 花瓣装饰
+      for (let i = 0; i < 25; i++) {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.18, 5, 5), new THREE.MeshLambertMaterial({ color: 0xfff0f5 }));
+        p.position.set((Math.random() - 0.5) * 5, 3 + Math.random() * 4, (Math.random() - 0.5) * 5);
+        group.add(p);
       }
     } else if (type === 2) {
-      // 枫树
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35 * baseScale, 0.5 * baseScale, 3 * baseScale, 6),
-        new THREE.MeshLambertMaterial({ color: 0x5d4037 })
-      );
-      trunk.position.y = 1.5 * baseScale;
-      group.add(trunk);
-      const colors = [0xff4500, 0xff6600, 0xff8800];
-      [0, 1, 2].forEach((i) => {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((2 - i * 0.4) * baseScale, (2.5 - i * 0.3) * baseScale, 6),
-          new THREE.MeshLambertMaterial({ color: colors[i] })
-        );
-        cone.position.y = (3 + i * 1.2) * baseScale;
+      // 枫树 - 橙红色系
+      const trunk3 = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.48, 3.8, 8), new THREE.MeshLambertMaterial({ color: 0x6d4c41 }));
+      trunk3.position.y = 1.9;
+      group.add(trunk3);
+      const maples = [
+        { y: 5.5, r: 2.6, color: 0xe64a19 },
+        { y: 7.2, r: 2.1, color: 0xff5722 },
+        { y: 8.6, r: 1.5, color: 0xff7043 },
+      ];
+      maples.forEach(m => {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(m.r, 3.5, 8), new THREE.MeshLambertMaterial({ color: m.color }));
+        cone.position.y = m.y;
+        cone.castShadow = true;
         group.add(cone);
       });
     } else if (type === 3) {
-      // 松树
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4 * baseScale, 0.6 * baseScale, 5 * baseScale, 8),
-        new THREE.MeshLambertMaterial({ color: 0x4a3728 })
-      );
-      trunk.position.y = 2.5 * baseScale;
-      group.add(trunk);
-      for (let i = 0; i < 4; i++) {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((3 - i * 0.5) * baseScale, 2 * baseScale, 8),
-          new THREE.MeshLambertMaterial({ color: 0x006400 })
-        );
-        cone.position.y = (4 + i * 1.2) * baseScale;
-        group.add(cone);
-      }
+      // 松树 - 深绿塔形
+      const trunk4 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 5.5, 8), new THREE.MeshLambertMaterial({ color: 0x3e2723 }));
+      trunk4.position.y = 2.75;
+      group.add(trunk4);
+      const pine = [
+        { y: 4.5, r: 3.0, h: 3.0 },
+        { y: 6.5, r: 2.4, h: 2.8 },
+        { y: 8.2, r: 1.8, h: 2.5 },
+        { y: 9.6, r: 1.2, h: 2.0 },
+      ];
+      pine.forEach(p => {
+        const c = new THREE.Mesh(new THREE.ConeGeometry(p.r, p.h, 8), new THREE.MeshLambertMaterial({ color: 0x1b5e20 }));
+        c.position.y = p.y;
+        c.castShadow = true;
+        group.add(c);
+      });
     } else {
-      // 棕榈
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.15 * baseScale, 0.25 * baseScale, 4 * baseScale, 6),
-        new THREE.MeshLambertMaterial({ color: 0x8b7355 })
-      );
-      trunk.position.y = 2 * baseScale;
-      trunk.rotation.z = Math.random() * 0.2 - 0.1;
-      group.add(trunk);
-      for (let i = 0; i < 6; i++) {
-        const leaf = new THREE.Mesh(
-          new THREE.ConeGeometry(0.3 * baseScale, 3 * baseScale, 4),
-          new THREE.MeshLambertMaterial({ color: 0x228b22 })
-        );
-        leaf.position.y = 4 * baseScale;
-        leaf.rotation.y = (i / 6) * Math.PI * 2;
-        leaf.rotation.z = 0.8;
+      // 棕榈 - 热带风情
+      const trunk5 = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 5.5, 6), new THREE.MeshLambertMaterial({ color: 0x8d6e63 }));
+      trunk5.position.y = 2.75;
+      group.add(trunk5);
+      for (let i = 0; i < 7; i++) {
+        const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.4, 4.5, 4), new THREE.MeshLambertMaterial({ color: 0x43a047 }));
+        leaf.position.y = 5.8;
+        leaf.rotation.z = 0.7;
+        leaf.rotation.y = (i / 7) * Math.PI * 2;
         group.add(leaf);
       }
+      // 顶部
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshLambertMaterial({ color: 0x66bb6a }));
+      top.position.y = 5.8;
+      group.add(top);
     }
 
     return group;
   };
 
-  const addSingleTreeToScene = (tree: Tree) => {
+  const addSingleTree = (tree: Tree) => {
     const ref = sceneRef.current;
     if (!ref) return;
     const { THREE, scene } = ref;
 
-    const group = createTreeGroup(tree, THREE);
-    const baseScale = getGrowthScale(tree.created_at);
-    group.scale.set(0.01 * baseScale, 0.01 * baseScale, 0.01 * baseScale);
-    group.position.set(tree.position_x, -2, tree.position_z);
-    scene.add(group);
-    ref.treeMeshes.push(group);
-    ref.treeData.set(group, tree);
-    ref.treeBaseScale.set(group, baseScale);
+    const g = buildTree(tree, THREE);
+    const bs = getGrowthScale(tree.created_at);
+    g.scale.set(0.01, 0.01, 0.01);
+    g.position.set(tree.position_x, -2, tree.position_z);
+    g.traverse((c: any) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+    scene.add(g);
+    ref.treeMeshes.push(g);
+    ref.treeData.set(g, tree);
+    ref.treeBaseScale.set(g, bs);
 
-    // 标签
-    const label = createTextSprite(THREE, tree.name);
-    label.position.set(tree.position_x, 8 * baseScale, tree.position_z);
-    label.scale.set(0.01, 0.01, 0.01);
-    scene.add(label);
-    ref.treeLabels.push(label);
+    const lbl = createTextSprite(THREE, tree.name);
+    lbl.position.set(tree.position_x, 12 * bs, tree.position_z);
+    lbl.scale.set(0.01, 0.01, 0.01);
+    scene.add(lbl);
+    ref.treeLabels.push(lbl);
 
-    // 生长动画
-    let progress = 0;
-    const animate = () => {
-      progress += 0.04;
-      if (progress < 1) {
-        const s = Math.sin(progress * Math.PI / 2) * baseScale;
-        group.scale.set(s, s, s);
-        group.position.y = -2 + progress * 2;
-        const labelScale = Math.sin(progress * Math.PI / 2);
-        label.scale.set(labelScale, labelScale, labelScale);
-        requestAnimationFrame(animate);
+    // Animate
+    let p = 0;
+    const step = () => {
+      p += 0.035;
+      if (p < 1) {
+        const s = Math.sin(p * Math.PI / 2) * bs;
+        g.scale.set(s, s, s);
+        g.position.y = -2 + p * 2;
+        const ls = Math.sin(p * Math.PI / 2);
+        lbl.scale.set(ls, ls, ls);
+        requestAnimationFrame(step);
       } else {
-        group.scale.set(baseScale, baseScale, baseScale);
-        group.position.y = 0;
-        label.scale.set(1, 1, 1);
+        g.scale.set(bs, bs, bs);
+        g.position.y = 0;
+        lbl.scale.set(1, 1, 1);
       }
     };
-    animate();
+    requestAnimationFrame(step);
   };
 
-  const calculatePosition = (index: number) => {
-    const perRow = Math.ceil(Math.sqrt(index + 1));
-    const spacing = TREE_SPACING;
-    const row = Math.floor(index / perRow);
-    const col = index % perRow;
-    const totalRows = Math.ceil((index + 1) / perRow);
-    const startX = -((perRow - 1) * spacing) / 2;
-    const startZ = -((totalRows - 1) * spacing) / 2;
-    return { x: startX + col * spacing, z: startZ + row * spacing };
+  const getPos = (idx: number) => {
+    const per = Math.ceil(Math.sqrt(idx + 1));
+    const sp = TREE_SPACING;
+    const row = Math.floor(idx / per);
+    const col = idx % per;
+    const total = Math.ceil((idx + 1) / per);
+    const sx = -((per - 1) * sp) / 2;
+    const sz = -((total - 1) * sp) / 2;
+    return { x: sx + col * sp, z: sz + row * sp };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !supabaseRef.current) return;
-
     setSubmitting(true);
     setMessage("");
-
-    const pos = calculatePosition(treeCount);
-    const treeType = Math.floor(Math.random() * TREE_TYPES);
+    const pos = getPos(treeCount);
+    const tt = Math.floor(Math.random() * TREE_TYPES);
 
     const { error } = await supabaseRef.current.from("forest").insert([{
-      name: name.trim(),
-      position_x: pos.x,
-      position_z: pos.z,
-      tree_type: treeType,
+      name: name.trim(), position_x: pos.x, position_z: pos.z, tree_type: tt,
     }]);
-
     if (error) {
       setMessage("❌ " + error.message);
     } else {
       setName("");
       setMessage("🌱 " + name.trim() + " 种下了一棵树！");
-      const newTree: Tree = {
-        id: treeCount + 1,
-        name: name.trim(),
-        position_x: pos.x,
-        position_z: pos.z,
-        tree_type: treeType,
-        created_at: new Date().toISOString(),
-      };
-      setTreeCount((p) => p + 1);
-      addSingleTreeToScene(newTree);
+      const t: Tree = { id: treeCount + 1, name: name.trim(), position_x: pos.x, position_z: pos.z, tree_type: tt, created_at: new Date().toISOString() };
+      setTreeCount(p => p + 1);
+      addSingleTree(t);
     }
     setSubmitting(false);
   };
 
   return (
     <div style={{
-      width: "100vw",
-      height: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      overflow: "hidden",
-      background: "linear-gradient(180deg, #87CEEB 0%, #E0F6FF 100%)",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      width: "100vw", height: "100vh", display: "flex", flexDirection: "column",
+      overflow: "hidden", background: "#1a237e",
+      fontFamily: "'PingFang SC', 'Helvetica Neue', Helvetica, Arial, sans-serif",
     }}>
       {/* 3D Canvas */}
-      <div ref={canvasRef} style={{ flex: 1, width: "100%", cursor: "grab" }} />
+      <div ref={canvasRef} style={{ flex: 1, width: "100%", cursor: "grab", position: "relative" }} />
 
-      {/* 底部面板 */}
+      {/* Loading overlay */}
+      {!loaded && (
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(26,35,126,0.9)", zIndex: 50, pointerEvents: "none",
+        }}>
+          <div style={{ textAlign: "center", color: "#fff" }}>
+            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🌲</div>
+            <div style={{ fontSize: "1.1rem", opacity: 0.9 }}>森林加载中...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Top bar */}
       <div style={{
-        background: "rgba(255,255,255,0.97)",
-        padding: "clamp(0.875rem, 4vw, 1.5rem)",
-        borderTopLeftRadius: "20px",
-        borderTopRightRadius: "20px",
-        boxShadow: "0 -4px 20px rgba(0,0,0,0.1)",
+        position: "absolute", top: 0, left: 0, right: 0,
+        padding: "clamp(0.75rem, 3vw, 1.25rem) clamp(1rem, 4vw, 2rem)",
+        background: "linear-gradient(180deg, rgba(26,35,126,0.85) 0%, transparent 100%)",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        pointerEvents: "none",
       }}>
-        <div style={{ textAlign: "center", marginBottom: "0.75rem" }}>
+        <div>
           <h1 style={{
-            fontSize: "clamp(1.2rem, 5vw, 1.5rem)",
-            fontWeight: 700,
-            color: "#2d3748",
-            marginBottom: "0.2rem",
+            fontSize: "clamp(1.1rem, 4vw, 1.6rem)", fontWeight: 700,
+            color: "#fff", margin: 0, textShadow: "0 2px 8px rgba(0,0,0,0.4)",
           }}>
             🌲 3D 森林
           </h1>
-          <p style={{ color: "#718096", fontSize: "clamp(0.8rem, 3vw, 0.9rem)" }}>
-            已有 <span style={{ color: "#228b22", fontWeight: 600 }}>{treeCount}</span> 棵树 🪴
-            <span style={{ color: "#a0aec0", fontSize: "0.75rem", marginLeft: "0.5rem" }}>
-              · 每2小时长大一点
-            </span>
+          <p style={{ fontSize: "clamp(0.7rem, 2.5vw, 0.85rem)", color: "rgba(255,255,255,0.8)", margin: 0 }}>
+            {treeCount} 棵树 🪴 · 每30秒长大一点
           </p>
         </div>
+        <div style={{
+          background: "rgba(255,255,255,0.15)",
+          backdropFilter: "blur(10px)",
+          border: "1px solid rgba(255,255,255,0.25)",
+          borderRadius: "16px",
+          padding: "0.5rem 1rem",
+          color: "#fff",
+          fontSize: "clamp(0.7rem, 2vw, 0.8rem)",
+          textAlign: "center",
+        }}>
+          🌱 种树<br />免费认领
+        </div>
+      </div>
 
+      {/* Bottom panel */}
+      <div style={{
+        background: "rgba(255,255,255,0.97)",
+        backdropFilter: "blur(20px)",
+        padding: "clamp(1rem, 4vw, 1.5rem)",
+        borderTopLeftRadius: "24px",
+        borderTopRightRadius: "24px",
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
+      }}>
         <form onSubmit={handleSubmit} style={{
-          display: "flex",
-          gap: "0.5rem",
-          maxWidth: "400px",
-          margin: "0 auto",
-          padding: "0 0.5rem",
+          display: "flex", gap: "0.5rem", maxWidth: "420px", margin: "0 auto",
         }}>
           <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="输入名字..."
-            disabled={submitting}
-            maxLength={15}
+            type="text" value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="留下你的名字..." disabled={submitting} maxLength={12}
             style={{
               flex: 1,
-              padding: "clamp(0.6rem, 2vw, 0.875rem)",
-              fontSize: "clamp(0.9rem, 3vw, 1rem)",
-              border: "2px solid #e2e8f0",
-              borderRadius: "12px",
-              outline: "none",
+              padding: "clamp(0.75rem, 2.5vw, 1rem) clamp(0.875rem, 3vw, 1.125rem)",
+              fontSize: "clamp(0.95rem, 3vw, 1.05rem)",
+              border: "2px solid #e8f5e9",
+              borderRadius: "16px", outline: "none",
+              background: "#f1f8e9",
               boxSizing: "border-box",
+              transition: "border-color 0.2s",
             }}
           />
           <button
-            type="submit"
-            disabled={submitting}
+            type="submit" disabled={submitting}
             style={{
-              padding: "clamp(0.6rem, 2vw, 0.875rem) clamp(1rem, 3vw, 1.5rem)",
-              fontSize: "clamp(0.9rem, 3vw, 1rem)",
-              fontWeight: 600,
+              padding: "clamp(0.75rem, 2.5vw, 1rem) clamp(1.25rem, 4vw, 2rem)",
+              fontSize: "clamp(0.95rem, 3vw, 1.05rem)", fontWeight: 700,
               color: "#fff",
-              background: submitting ? "#a0aec0" : "linear-gradient(135deg, #228b22, #32cd32)",
-              border: "none",
-              borderRadius: "12px",
+              background: submitting
+                ? "linear-gradient(135deg, #b0bec5, #90a4ae)"
+                : "linear-gradient(135deg, #2e7d32, #43a047)",
+              border: "none", borderRadius: "16px",
               cursor: submitting ? "not-allowed" : "pointer",
+              boxShadow: submitting ? "none" : "0 4px 12px rgba(46,125,50,0.35)",
+              transition: "all 0.2s",
               whiteSpace: "nowrap",
             }}
           >
-            {submitting ? "🌱..." : "🌱 种树"}
+            {submitting ? "🌱.." : "🌱 种树"}
           </button>
         </form>
 
         {message && (
           <p style={{
-            marginTop: "0.75rem",
-            padding: "0.6rem",
-            background: message.startsWith("❌") ? "#fff5f5" : "#f0fff4",
-            borderRadius: "10px",
-            color: message.startsWith("❌") ? "#c53030" : "#2f855a",
-            textAlign: "center",
-            fontSize: "clamp(0.8rem, 2.5vw, 0.9rem)",
+            marginTop: "0.75rem", padding: "0.6rem 1rem",
+            background: message.startsWith("❌") ? "#ffebee" : "#e8f5e9",
+            borderRadius: "12px",
+            color: message.startsWith("❌") ? "#c62828" : "#2e7d32",
+            textAlign: "center", fontSize: "clamp(0.85rem, 2.5vw, 0.95rem)",
+            fontWeight: 500,
           }}>
             {message}
           </p>
         )}
 
         <p style={{
-          textAlign: "center",
-          marginTop: "0.5rem",
-          color: "#a0aec0",
-          fontSize: "clamp(0.65rem, 2vw, 0.75rem)",
+          textAlign: "center", marginTop: "0.6rem",
+          color: "#bdbdbd", fontSize: "clamp(0.65rem, 2vw, 0.75rem)",
         }}>
-          拖动旋转视角
+          拖动旋转视角 · 树上的名字标识
         </p>
       </div>
     </div>
