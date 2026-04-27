@@ -14,18 +14,28 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [leaderboard, setLeaderboard] = useState<Entry[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // 获取排行榜
+  // 获取排行榜和总人数
   const fetchLeaderboard = async () => {
+    // 查询最新3条
     const { data, error } = await supabase
       .from("text_entries")
       .select("id, name, created_at")
       .order("created_at", { ascending: false })
       .limit(3);
 
+    // 查询总人数
+    const { count } = await supabase
+      .from("text_entries")
+      .select("*", { count: "exact", head: true });
+
     if (!error && data) {
       setLeaderboard(data as Entry[]);
+    }
+    if (count !== null) {
+      setTotalCount(count);
     }
     setLoading(false);
   };
@@ -235,7 +245,7 @@ export default function Home() {
           color: "#a0aec0",
           fontSize: "0.75rem",
         }}>
-          共 {leaderboard.length} 人参与
+          共 {totalCount} 人参与
         </p>
       </div>
     </div>
