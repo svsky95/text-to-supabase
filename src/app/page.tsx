@@ -9,10 +9,11 @@ interface Tree {
   position_x: number;
   position_z: number;
   tree_type: number;
+  created_at?: string;
 }
 
-// 树类型: 0=普通绿树, 1=樱花, 2=枫树, 3=松树, 4=棕榈
 const TREE_TYPES = 5;
+const TREE_SPACING = 7; // 树间距
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -26,6 +27,41 @@ function getSupabase(): SupabaseClient {
   return supabaseClient;
 }
 
+// 计算树的生长倍数（每2小时长大一点，最多2倍）
+function getGrowthScale(createdAt: string | undefined): number {
+  if (!createdAt) return 1;
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const ageHours = ageMs / (1000 * 60 * 60);
+  const growthLevel = Math.floor(ageHours / 2); // 每2小时一级
+  return Math.min(1 + growthLevel * 0.15, 2.5); // 每级+15%，最多2.5倍
+}
+
+// 创建3D文字标签（sprite方式）
+function createTextSprite(THREE: any, text: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.roundRect(8, 8, 240, 48, 10);
+  ctx.fill();
+
+  ctx.font = "bold 28px sans-serif";
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text.length > 10 ? text.substring(0, 10) + ".." : text, 128, 32);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(4, 1, 1);
+
+  return sprite;
+}
+
 export default function Home() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,10 +69,10 @@ export default function Home() {
   const [trees, setTrees] = useState<Tree[]>([]);
   const [treeCount, setTreeCount] = useState(0);
   const [threeLoaded, setThreeLoaded] = useState(false);
-  const [hoveredTree, setHoveredTree] = useState<{ name: string; x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
   const supabaseRef = useRef<SupabaseClient | null>(null);
+  const growthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 初始化 Supabase
   useEffect(() => {
@@ -60,18 +96,21 @@ export default function Home() {
   useEffect(() => {
     if (!threeLoaded || !canvasRef.current || sceneRef.current) return;
     initScene();
+
+    return () => {
+      if (growthTimerRef.current) clearInterval(growthTimerRef.current);
+    };
   }, [threeLoaded]);
 
   const initScene = () => {
     const THREE = (window as any).THREE;
     if (!THREE || sceneRef.current) return;
 
-    const container = canvasRef.current;
-    if (!container) return;
+    const container = canvasRef.current!;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 50, 200);
+    scene.fog = new THREE.Fog(0x87ceeb, 50, 250);
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -79,7 +118,7 @@ export default function Home() {
       0.1,
       1000
     );
-    camera.position.set(0, 35, 55);
+    camera.position.set(0, 40, 60);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -87,54 +126,53 @@ export default function Home() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    // 灯光
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(50, 100, 50);
     scene.add(dirLight);
 
     // 地面
-    const groundGeo = new THREE.PlaneGeometry(200, 200);
-    const groundMat = new THREE.MeshLambertMaterial({ color: 0x7cfc00 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(250, 250),
+      new THREE.MeshLambertMaterial({ color: 0x7cfc00 })
+    );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    // 地面装饰（草和花）
+    // 装饰（花丛，更少避免遮挡标签）
     const decorGroup = new THREE.Group();
-    for (let i = 0; i < 300; i++) {
-      const x = (Math.random() - 0.5) * 180;
-      const z = (Math.random() - 0.5) * 180;
-      if (Math.random() > 0.3) {
-        // 草
-        const h = 0.2 + Math.random() * 0.4;
-        const grassGeo = new THREE.ConeGeometry(0.1, h, 4);
-        const grassMat = new THREE.MeshLambertMaterial({
-          color: new THREE.Color().setHSL(0.3, 0.7, 0.3 + Math.random() * 0.2)
-        });
-        const grass = new THREE.Mesh(grassGeo, grassMat);
-        grass.position.set(x, h / 2, z);
+    for (let i = 0; i < 150; i++) {
+      const x = (Math.random() - 0.5) * 220;
+      const z = (Math.random() - 0.5) * 220;
+      if (Math.random() > 0.4) {
+        const grass = new THREE.Mesh(
+          new THREE.ConeGeometry(0.12, 0.3 + Math.random() * 0.3, 4),
+          new THREE.MeshLambertMaterial({
+            color: new THREE.Color().setHSL(0.3, 0.7, 0.25 + Math.random() * 0.15)
+          })
+        );
+        grass.position.set(x, 0.15, z);
         decorGroup.add(grass);
       } else {
-        // 花
-        const flowerGeo = new THREE.SphereGeometry(0.15 + Math.random() * 0.1, 6, 6);
-        const flowerMat = new THREE.MeshLambertMaterial({
-          color: new THREE.Color().setHSL(Math.random() * 0.3 + 0.8, 0.8, 0.6)
-        });
-        const flower = new THREE.Mesh(flowerGeo, flowerMat);
-        flower.position.set(x, 0.2, z);
-        decorGroup.add(flower);
-        // 花茎
-        const stemGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.3, 4);
-        const stemMat = new THREE.MeshLambertMaterial({ color: 0x228b22 });
-        const stem = new THREE.Mesh(stemGeo, stemMat);
-        stem.position.set(x, 0.1, z);
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.03, 0.03, 0.3, 4),
+          new THREE.MeshLambertMaterial({ color: 0x228b22 })
+        );
+        stem.position.set(x, 0.15, z);
         decorGroup.add(stem);
+        const flower = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 6, 6),
+          new THREE.MeshLambertMaterial({
+            color: new THREE.Color().setHSL(Math.random() * 0.25 + 0.85, 0.8, 0.6)
+          })
+        );
+        flower.position.set(x, 0.4, z);
+        decorGroup.add(flower);
       }
     }
     scene.add(decorGroup);
 
-    sceneRef.current = { THREE, scene, camera, renderer, treeMeshes: [], treeData: new Map() };
+    sceneRef.current = { THREE, scene, camera, renderer, treeMeshes: [], treeLabels: [], treeData: new Map(), treeBaseScale: new Map() };
 
     // 渲染循环
     const animate = () => {
@@ -142,16 +180,19 @@ export default function Home() {
       const ref = sceneRef.current;
       if (!ref) return;
 
-      // 树摇摆
       ref.treeMeshes.forEach((mesh: any, i: number) => {
-        mesh.rotation.z = Math.sin(Date.now() * 0.001 + i * 0.5) * 0.03;
+        mesh.rotation.z = Math.sin(Date.now() * 0.001 + i * 0.5) * 0.025;
       });
 
       renderer.render(scene, camera);
     };
     animate();
 
-    // 窗口调整
+    // 每2小时更新树木大小
+    growthTimerRef.current = setInterval(() => {
+      updateTreeGrowth();
+    }, 1000 * 60 * 60 * 2); // 2小时
+
     const handleResize = () => {
       if (!container || !sceneRef.current) return;
       const { camera, renderer } = sceneRef.current;
@@ -161,55 +202,35 @@ export default function Home() {
     };
     window.addEventListener("resize", handleResize);
 
-    // 鼠标控制相机
+    // 鼠标控制
     let isDragging = false;
     let prevMouse = { x: 0, y: 0 };
-    let cameraAngle = { x: 0, y: 0.35 };
+    let cameraAngle = { x: 0, y: 0.38 };
 
     const onMouseDown = (e: MouseEvent) => {
       isDragging = true;
       prevMouse = { x: e.clientX, y: e.clientY };
     };
 
-    const onMouseMove = (e: MouseEvent) => {
+    const updateCamera = () => {
       const ref = sceneRef.current;
       if (!ref) return;
-
-      // hover 检测
-      const rect = container!.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
-      );
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(ref.treeMeshes, true);
-
-      if (intersects.length > 0) {
-        let obj: any = intersects[0].object;
-        while (obj.parent && !ref.treeData.has(obj)) obj = obj.parent;
-        const tree = ref.treeData.get(obj);
-        if (tree) {
-          setHoveredTree({ name: tree.name, x: e.clientX, y: e.clientY });
-        } else {
-          setHoveredTree(null);
-        }
-      } else {
-        setHoveredTree(null);
-      }
-
-      if (!isDragging) return;
-      const deltaX = e.clientX - prevMouse.x;
-      const deltaY = e.clientY - prevMouse.y;
-      cameraAngle.x += deltaX * 0.005;
-      cameraAngle.y = Math.max(0.1, Math.min(0.7, cameraAngle.y + deltaY * 0.005));
-      prevMouse = { x: e.clientX, y: e.clientY };
-
-      const distance = 65;
+      const { camera } = ref;
+      const distance = 75;
       camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
       camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
       camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
       camera.lookAt(0, 5, 0);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - prevMouse.x;
+      const deltaY = e.clientY - prevMouse.y;
+      cameraAngle.x += deltaX * 0.004;
+      cameraAngle.y = Math.max(0.1, Math.min(0.65, cameraAngle.y + deltaY * 0.004));
+      prevMouse = { x: e.clientX, y: e.clientY };
+      updateCamera();
     };
 
     const onMouseUp = () => { isDragging = false; };
@@ -219,7 +240,7 @@ export default function Home() {
     container.addEventListener("mouseup", onMouseUp);
     container.addEventListener("mouseleave", onMouseUp);
 
-    // 触摸控制
+    // 触摸
     container.addEventListener("touchstart", (e: TouchEvent) => {
       if (e.touches.length === 1) {
         isDragging = true;
@@ -230,25 +251,34 @@ export default function Home() {
       if (!isDragging || e.touches.length !== 1) return;
       const deltaX = e.touches[0].clientX - prevMouse.x;
       const deltaY = e.touches[0].clientY - prevMouse.y;
-      cameraAngle.x += deltaX * 0.005;
-      cameraAngle.y = Math.max(0.1, Math.min(0.7, cameraAngle.y + deltaY * 0.005));
+      cameraAngle.x += deltaX * 0.004;
+      cameraAngle.y = Math.max(0.1, Math.min(0.65, cameraAngle.y + deltaY * 0.004));
       prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-
-      camera.position.x = Math.sin(cameraAngle.x) * 65 * Math.cos(cameraAngle.y);
-      camera.position.y = 65 * Math.sin(cameraAngle.y) + 10;
-      camera.position.z = Math.cos(cameraAngle.x) * 65 * Math.cos(cameraAngle.y);
-      camera.lookAt(0, 5, 0);
+      updateCamera();
     });
     container.addEventListener("touchend", () => { isDragging = false; });
 
     fetchTrees();
   };
 
+  // 更新树木生长
+  const updateTreeGrowth = () => {
+    const ref = sceneRef.current;
+    if (!ref) return;
+
+    ref.treeMeshes.forEach((mesh: any) => {
+      const tree = ref.treeData.get(mesh);
+      if (!tree) return;
+      const scale = getGrowthScale(tree.created_at);
+      mesh.scale.set(scale, scale, scale);
+    });
+  };
+
   const fetchTrees = async () => {
     if (!supabaseRef.current) return;
     const { data } = await supabaseRef.current
       .from("forest")
-      .select("id, name, position_x, position_z, tree_type")
+      .select("id, name, position_x, position_z, tree_type, created_at")
       .order("id", { ascending: true });
 
     if (data) {
@@ -263,124 +293,121 @@ export default function Home() {
     if (!ref) return;
     const { THREE, scene } = ref;
 
-    // 清除旧树
+    // 清除旧树和标签
     ref.treeMeshes.forEach((m: any) => scene.remove(m));
+    ref.treeLabels.forEach((l: any) => scene.remove(l));
     ref.treeMeshes = [];
+    ref.treeLabels = [];
     ref.treeData.clear();
+    ref.treeBaseScale.clear();
 
     treeData.forEach((tree) => {
-      const treeGroup = createTree(tree, THREE);
-      treeGroup.position.set(tree.position_x, 0, tree.position_z);
-      scene.add(treeGroup);
-      ref.treeMeshes.push(treeGroup);
-      ref.treeData.set(treeGroup, tree);
+      const group = createTreeGroup(tree, THREE);
+      const baseScale = getGrowthScale(tree.created_at);
+      group.scale.set(baseScale, baseScale, baseScale);
+      group.position.set(tree.position_x, 0, tree.position_z);
+      scene.add(group);
+      ref.treeMeshes.push(group);
+      ref.treeData.set(group, tree);
+      ref.treeBaseScale.set(group, baseScale);
+
+      // 名字标签
+      const label = createTextSprite(THREE, tree.name);
+      label.position.set(tree.position_x, 8 * baseScale, tree.position_z);
+      scene.add(label);
+      ref.treeLabels.push(label);
     });
   };
 
-  // 创建不同类型的树
-  const createTree = (tree: Tree, THREE: any) => {
+  const createTreeGroup = (tree: Tree, THREE: any) => {
     const group = new THREE.Group();
-    const scale = 0.6 + tree.tree_type * 0.1;
+    const baseScale = 0.8;
     const type = tree.tree_type % TREE_TYPES;
 
     if (type === 0) {
-      // 普通绿树 - 三层锥形
+      // 普通绿树
       const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3 * scale, 0.5 * scale, 3 * scale, 6),
+        new THREE.CylinderGeometry(0.3 * baseScale, 0.5 * baseScale, 3 * baseScale, 6),
         new THREE.MeshLambertMaterial({ color: 0x8b4513 })
       );
-      trunk.position.y = 1.5 * scale;
+      trunk.position.y = 1.5 * baseScale;
       group.add(trunk);
-
       [0, 1, 2].forEach((i) => {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((2.5 - i * 0.5) * scale, (3 - i * 0.5) * scale, 6),
+        group.add(new THREE.Mesh(
+          new THREE.ConeGeometry((2.5 - i * 0.5) * baseScale, (3 - i * 0.5) * baseScale, 6),
           new THREE.MeshLambertMaterial({ color: 0x228b22 })
-        );
-        cone.position.y = (3 + i * 1.5) * scale;
-        group.add(cone);
+        )).position.y = (3 + i * 1.5) * baseScale;
       });
     } else if (type === 1) {
-      // 樱花树 - 粉色球形树冠
+      // 樱花
       const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.25 * scale, 0.4 * scale, 2 * scale, 6),
+        new THREE.CylinderGeometry(0.25 * baseScale, 0.4 * baseScale, 2 * baseScale, 6),
         new THREE.MeshLambertMaterial({ color: 0x654321 })
       );
-      trunk.position.y = scale;
+      trunk.position.y = baseScale;
       group.add(trunk);
-
       const crown = new THREE.Mesh(
-        new THREE.SphereGeometry(2.5 * scale, 8, 8),
+        new THREE.SphereGeometry(2.5 * baseScale, 8, 8),
         new THREE.MeshLambertMaterial({ color: 0xffb7c5 })
       );
-      crown.position.y = 3 * scale;
+      crown.position.y = 3 * baseScale;
       group.add(crown);
-
-      // 花瓣点缀
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 15; i++) {
         const petal = new THREE.Mesh(
-          new THREE.SphereGeometry(0.15 * scale, 4, 4),
+          new THREE.SphereGeometry(0.15 * baseScale, 4, 4),
           new THREE.MeshLambertMaterial({ color: 0xffd1dc })
         );
         petal.position.set(
-          (Math.random() - 0.5) * 4 * scale,
-          3 * scale + (Math.random() - 0.5) * 3 * scale,
-          (Math.random() - 0.5) * 4 * scale
+          (Math.random() - 0.5) * 4 * baseScale,
+          3 * baseScale + (Math.random() - 0.5) * 3 * baseScale,
+          (Math.random() - 0.5) * 4 * baseScale
         );
         group.add(petal);
       }
     } else if (type === 2) {
-      // 枫树 - 红色/橙色，多层
+      // 枫树
       const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35 * scale, 0.5 * scale, 3 * scale, 6),
+        new THREE.CylinderGeometry(0.35 * baseScale, 0.5 * baseScale, 3 * baseScale, 6),
         new THREE.MeshLambertMaterial({ color: 0x5d4037 })
       );
-      trunk.position.y = 1.5 * scale;
+      trunk.position.y = 1.5 * baseScale;
       group.add(trunk);
-
       const colors = [0xff4500, 0xff6600, 0xff8800];
       [0, 1, 2].forEach((i) => {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((2 - i * 0.4) * scale, (2.5 - i * 0.3) * scale, 6),
+        group.add(new THREE.Mesh(
+          new THREE.ConeGeometry((2 - i * 0.4) * baseScale, (2.5 - i * 0.3) * baseScale, 6),
           new THREE.MeshLambertMaterial({ color: colors[i] })
-        );
-        cone.position.y = (3 + i * 1.2) * scale;
-        group.add(cone);
+        )).position.y = (3 + i * 1.2) * baseScale;
       });
     } else if (type === 3) {
-      // 松树 - 单干多层
+      // 松树
       const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4 * scale, 0.6 * scale, 5 * scale, 8),
+        new THREE.CylinderGeometry(0.4 * baseScale, 0.6 * baseScale, 5 * baseScale, 8),
         new THREE.MeshLambertMaterial({ color: 0x4a3728 })
       );
-      trunk.position.y = 2.5 * scale;
+      trunk.position.y = 2.5 * baseScale;
       group.add(trunk);
-
       for (let i = 0; i < 4; i++) {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry((3 - i * 0.5) * scale, 2 * scale, 8),
+        group.add(new THREE.Mesh(
+          new THREE.ConeGeometry((3 - i * 0.5) * baseScale, 2 * baseScale, 8),
           new THREE.MeshLambertMaterial({ color: 0x006400 })
-        );
-        cone.position.y = (4 + i * 1.2) * scale;
-        group.add(cone);
+        )).position.y = (4 + i * 1.2) * baseScale;
       }
     } else {
-      // 棕榈树
+      // 棕榈
       const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.15 * scale, 0.25 * scale, 4 * scale, 6),
+        new THREE.CylinderGeometry(0.15 * baseScale, 0.25 * baseScale, 4 * baseScale, 6),
         new THREE.MeshLambertMaterial({ color: 0x8b7355 })
       );
-      trunk.position.y = 2 * scale;
+      trunk.position.y = 2 * baseScale;
       trunk.rotation.z = Math.random() * 0.2 - 0.1;
       group.add(trunk);
-
-      // 棕榈叶
       for (let i = 0; i < 6; i++) {
         const leaf = new THREE.Mesh(
-          new THREE.ConeGeometry(0.3 * scale, 3 * scale, 4),
+          new THREE.ConeGeometry(0.3 * baseScale, 3 * baseScale, 4),
           new THREE.MeshLambertMaterial({ color: 0x228b22 })
         );
-        leaf.position.y = 4 * scale;
+        leaf.position.y = 4 * baseScale;
         leaf.rotation.y = (i / 6) * Math.PI * 2;
         leaf.rotation.z = 0.8;
         group.add(leaf);
@@ -395,25 +422,37 @@ export default function Home() {
     if (!ref) return;
     const { THREE, scene } = ref;
 
-    const treeGroup = createTree(tree, THREE);
-    treeGroup.position.set(tree.position_x, 0, tree.position_z);
-    treeGroup.scale.y = 0;
-    treeGroup.position.y = -2;
+    const group = createTreeGroup(tree, THREE);
+    const baseScale = getGrowthScale(tree.created_at);
+    group.scale.set(0.01 * baseScale, 0.01 * baseScale, 0.01 * baseScale);
+    group.position.set(tree.position_x, -2, tree.position_z);
+    scene.add(group);
+    ref.treeMeshes.push(group);
+    ref.treeData.set(group, tree);
+    ref.treeBaseScale.set(group, baseScale);
 
-    scene.add(treeGroup);
-    ref.treeMeshes.push(treeGroup);
-    ref.treeData.set(treeGroup, tree);
+    // 标签
+    const label = createTextSprite(THREE, tree.name);
+    label.position.set(tree.position_x, 8 * baseScale, tree.position_z);
+    label.scale.set(0.01, 0.01, 0.01);
+    scene.add(label);
+    ref.treeLabels.push(label);
 
+    // 生长动画
     let progress = 0;
     const animate = () => {
-      progress += 0.05;
+      progress += 0.04;
       if (progress < 1) {
-        treeGroup.scale.y = Math.sin(progress * Math.PI / 2);
-        treeGroup.position.y = -2 + progress * 2;
+        const s = Math.sin(progress * Math.PI / 2) * baseScale;
+        group.scale.set(s, s, s);
+        group.position.y = -2 + progress * 2;
+        const labelScale = Math.sin(progress * Math.PI / 2);
+        label.scale.set(labelScale, labelScale, labelScale);
         requestAnimationFrame(animate);
       } else {
-        treeGroup.scale.y = 1;
-        treeGroup.position.y = 0;
+        group.scale.set(baseScale, baseScale, baseScale);
+        group.position.y = 0;
+        label.scale.set(1, 1, 1);
       }
     };
     animate();
@@ -421,11 +460,12 @@ export default function Home() {
 
   const calculatePosition = (index: number) => {
     const perRow = Math.ceil(Math.sqrt(index + 1));
-    const spacing = 4.5;
+    const spacing = TREE_SPACING;
     const row = Math.floor(index / perRow);
     const col = index % perRow;
+    const totalRows = Math.ceil((index + 1) / perRow);
     const startX = -((perRow - 1) * spacing) / 2;
-    const startZ = -((Math.ceil((index + 1) / perRow) - 1) * spacing) / 2;
+    const startZ = -((totalRows - 1) * spacing) / 2;
     return { x: startX + col * spacing, z: startZ + row * spacing };
   };
 
@@ -457,6 +497,7 @@ export default function Home() {
         position_x: pos.x,
         position_z: pos.z,
         tree_type: treeType,
+        created_at: new Date().toISOString(),
       };
       setTreeCount((p) => p + 1);
       addSingleTreeToScene(newTree);
@@ -473,37 +514,14 @@ export default function Home() {
       overflow: "hidden",
       background: "linear-gradient(180deg, #87CEEB 0%, #E0F6FF 100%)",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      position: "relative",
     }}>
       {/* 3D Canvas */}
-      <div
-        ref={canvasRef}
-        style={{ flex: 1, width: "100%", cursor: "grab" }}
-      />
-
-      {/* Hover 提示 */}
-      {hoveredTree && (
-        <div style={{
-          position: "fixed",
-          left: hoveredTree.x + 15,
-          top: hoveredTree.y - 10,
-          background: "rgba(0,0,0,0.75)",
-          color: "#fff",
-          padding: "6px 12px",
-          borderRadius: "8px",
-          fontSize: "0.85rem",
-          pointerEvents: "none",
-          zIndex: 100,
-          whiteSpace: "nowrap",
-        }}>
-          🌳 {hoveredTree.name}
-        </div>
-      )}
+      <div ref={canvasRef} style={{ flex: 1, width: "100%", cursor: "grab" }} />
 
       {/* 底部面板 */}
       <div style={{
         background: "rgba(255,255,255,0.97)",
-        padding: "clamp(1rem, 4vw, 1.5rem)",
+        padding: "clamp(0.875rem, 4vw, 1.5rem)",
         borderTopLeftRadius: "20px",
         borderTopRightRadius: "20px",
         boxShadow: "0 -4px 20px rgba(0,0,0,0.1)",
@@ -519,6 +537,9 @@ export default function Home() {
           </h1>
           <p style={{ color: "#718096", fontSize: "clamp(0.8rem, 3vw, 0.9rem)" }}>
             已有 <span style={{ color: "#228b22", fontWeight: 600 }}>{treeCount}</span> 棵树 🪴
+            <span style={{ color: "#a0aec0", fontSize: "0.75rem", marginLeft: "0.5rem" }}>
+              · 每2小时长大一点
+            </span>
           </p>
         </div>
 
@@ -585,7 +606,7 @@ export default function Home() {
           color: "#a0aec0",
           fontSize: "clamp(0.65rem, 2vw, 0.75rem)",
         }}>
-          拖动旋转 · 点击树查看种树人
+          拖动旋转视角
         </p>
       </div>
     </div>
