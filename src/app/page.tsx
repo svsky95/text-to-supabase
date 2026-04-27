@@ -50,7 +50,7 @@ function createTextSprite(THREE: any, text: string) {
   ctx.shadowBlur = 0;
 
   // 名字
-  ctx.font = "bold 44px sans-serif";
+  ctx.font = "bold 64px sans-serif";
   ctx.fillStyle = "#e8f5e9";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -62,7 +62,7 @@ function createTextSprite(THREE: any, text: string) {
   texture.magFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(6, 1.5, 1);
+  sprite.scale.set(9, 2.25, 1);
   return sprite;
 }
 
@@ -355,7 +355,7 @@ export default function Home() {
       ref.treeBaseScale.set(g, bs);
 
       const lbl = createTextSprite(THREE, tree.name);
-      lbl.position.set(tree.position_x, 12 * bs, tree.position_z);
+      lbl.position.set(tree.position_x, 18 * bs, tree.position_z);
       scene.add(lbl);
       ref.treeLabels.push(lbl);
     });
@@ -475,7 +475,7 @@ export default function Home() {
     ref.treeBaseScale.set(g, bs);
 
     const lbl = createTextSprite(THREE, tree.name);
-    lbl.position.set(tree.position_x, 12 * bs, tree.position_z);
+    lbl.position.set(tree.position_x, 18 * bs, tree.position_z);
     lbl.scale.set(0.01, 0.01, 0.01);
     scene.add(lbl);
     ref.treeLabels.push(lbl);
