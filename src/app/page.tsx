@@ -9,31 +9,40 @@ interface Entry {
   created_at: string;
 }
 
-// 旅游城市库
-const cities = [
+// 旅游城市库（备用，当数据库无数据时使用）
+const backupCities = [
   "北京", "上海", "广州", "深圳", "成都", "杭州", "西安", "重庆",
   "厦门", "三亚", "丽江", "大理", "青岛", "桂林", "张家界", "苏州",
-  "南京", "乌镇", "周村", "凤凰古城", "平遥古城", "敦煌", "拉萨",
+  "南京", "乌镇", "周庄", "凤凰古城", "平遥古城", "敦煌", "拉萨",
   "哈尔滨", "长春", "沈阳", "大连", "威海", "烟台", "长白山", "九寨沟",
   "黄山", "泰山", "华山", "峨眉山", "乐山", "庐山", "井冈山", "武夷山",
   "西塘", "南浔", "同里", "甪直", "宏村", "婺源", "阳朔", "北海",
-  "海口", "三亚", "万宁", "文昌", "琼海", "五指山", "三亚", "陵水",
+  "海口", "万宁", "文昌", "琼海", "五指山", "陵水",
   "珠海", "汕头", "潮州", "揭阳", "梅州", "韶关", "肇庆", "惠州",
-  "清远", "佛山", "中山", "东莞", "湛江", "茂名", "阳江", "江门",
-  "昆明", "大理", "丽江", "香格里拉", "西双版纳", "腾冲", "瑞丽",
+  "昆明", "香格里拉", "西双版纳", "腾冲", "瑞丽",
   "贵阳", "黄果树", "梵净山", "镇远", "西江千户苗寨", "荔波",
   "郑州", "洛阳", "开封", "安阳", "新乡", "云台山", "少林寺",
-  "武汉", "长沙", "张家界", "衡山", "岳阳", "凤凰古城", "武当山",
-  "太原", "平遥古城", "五台山", "大同", "乔家大院", "壶口瀑布",
-  "兰州", "敦煌", "张掖", "嘉峪关", "青海湖", "茶卡盐湖", "塔尔寺",
+  "武汉", "长沙", "衡山", "岳阳", "武当山",
+  "太原", "五台山", "大同", "乔家大院", "壶口瀑布",
+  "兰州", "张掖", "嘉峪关", "青海湖", "茶卡盐湖", "塔尔寺",
   "乌鲁木齐", "天山", "吐鲁番", "喀纳斯", "伊犁", "赛里木湖",
   "银川", "中卫", "沙湖", "镇北堡影视城", "西夏王陵",
   "呼和浩特", "希拉穆仁", "响沙湾", "鄂尔多斯", "呼伦贝尔", "满洲里",
 ];
 
-// 获取随机旅游城市
-const getRandomCity = () => {
-  return cities[Math.floor(Math.random() * cities.length)];
+// 获取随机旅游城市（从数据库）
+const getRandomCity = async () => {
+  const { data } = await supabase
+    .from("cities")
+    .select("name")
+    .limit(1)
+    .order("random");
+
+  if (data && data.length > 0) {
+    return data[0].name;
+  }
+  // 备用：随机从本地库选择
+  return backupCities[Math.floor(Math.random() * backupCities.length)];
 };
 
 export default function Home() {
@@ -88,7 +97,7 @@ export default function Home() {
       setMessage("❌ 提交失败：" + error.message);
     } else {
       setName("");
-      const city = getRandomCity();
+      const city = await getRandomCity();
       setMessage(`🎉 提交成功！推荐五一旅游：${city}`);
       fetchLeaderboard();
     }
@@ -96,18 +105,18 @@ export default function Home() {
   };
 
   // 随机推荐旅游城市（滚动效果）
-  const handleRandomCity = () => {
+  const handleRandomCity = async () => {
     if (isRolling) return;
     setIsRolling(true);
     setRandomCity("🎰 抽取中...");
 
     let count = 0;
-    const interval = setInterval(() => {
-      setRandomCity(`🎰 抽取中... ${getRandomCity()}`);
+    const interval = setInterval(async () => {
+      setRandomCity(`🎰 抽取中... ${await getRandomCity()}`);
       count++;
       if (count >= 10) {
         clearInterval(interval);
-        const finalCity = getRandomCity();
+        const finalCity = await getRandomCity();
         setRandomCity(`✈️ 你的五一推荐目的地：${finalCity}`);
         setIsRolling(false);
       }
