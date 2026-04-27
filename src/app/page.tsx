@@ -43,6 +43,8 @@ export default function Home() {
   const [leaderboard, setLeaderboard] = useState<Entry[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [randomCity, setRandomCity] = useState("");
+  const [isRolling, setIsRolling] = useState(false);
 
   // 获取排行榜和总人数
   const fetchLeaderboard = async () => {
@@ -93,6 +95,25 @@ export default function Home() {
     setSubmitting(false);
   };
 
+  // 随机推荐旅游城市（滚动效果）
+  const handleRandomCity = () => {
+    if (isRolling) return;
+    setIsRolling(true);
+    setRandomCity("🎰 抽取中...");
+
+    let count = 0;
+    const interval = setInterval(() => {
+      setRandomCity(`🎰 抽取中... ${getRandomCity()}`);
+      count++;
+      if (count >= 10) {
+        clearInterval(interval);
+        const finalCity = getRandomCity();
+        setRandomCity(`✈️ 你的五一推荐目的地：${finalCity}`);
+        setIsRolling(false);
+      }
+    }, 100);
+  };
+
   return (
     <div style={{
       minHeight: "100vh",
@@ -111,10 +132,10 @@ export default function Home() {
             color: "#2d3748",
             marginBottom: "0.5rem",
           }}>
-            🌿 很高兴来到我的测试页
+            ✈️ 你的五一旅行目的地
           </h1>
           <p style={{ color: "#718096", fontSize: "0.9rem" }}>
-            留下你的姓名，一起参与排行吧
+            输入名字，看看系统推荐你去哪里玩
           </p>
         </div>
 
@@ -264,6 +285,61 @@ export default function Home() {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* 随机推荐旅游城市 */}
+        <div style={{
+          background: "white",
+          borderRadius: "16px",
+          padding: "1.25rem",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+          boxSizing: "border-box",
+          marginTop: "1.25rem",
+        }}>
+          <h2 style={{
+            fontSize: "1rem",
+            fontWeight: 600,
+            color: "#2d3748",
+            marginBottom: "1rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}>
+            🎲 随机看看你五一想去的城市
+          </h2>
+          <button
+            onClick={handleRandomCity}
+            disabled={isRolling}
+            style={{
+              width: "100%",
+              padding: "0.875rem",
+              fontSize: "1rem",
+              fontWeight: 600,
+              color: "#fff",
+              background: isRolling ? "#a0aec0" : "linear-gradient(135deg, #667eea, #764ba2)",
+              border: "none",
+              borderRadius: "12px",
+              cursor: isRolling ? "not-allowed" : "pointer",
+              transition: "all 0.2s",
+              boxShadow: isRolling ? "none" : "0 4px 12px rgba(102, 126, 234, 0.3)",
+            }}
+          >
+            {isRolling ? "🎰 抽取中..." : "🎯 试试手气"}
+          </button>
+          {randomCity && (
+            <p style={{
+              marginTop: "1rem",
+              padding: "0.875rem",
+              background: "linear-gradient(135deg, #fef3c7, #fde68a)",
+              borderRadius: "12px",
+              color: "#92400e",
+              textAlign: "center",
+              fontSize: "1rem",
+              fontWeight: 600,
+            }}>
+              {randomCity}
+            </p>
           )}
         </div>
 
