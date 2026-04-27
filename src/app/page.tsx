@@ -1,87 +1,308 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
-interface Entry {
+interface Tree {
   id: number;
   name: string;
-  created_at: string;
+  position_x: number;
+  position_z: number;
+  tree_type: number;
 }
-
-// 旅游城市库（备用，当数据库无数据时使用）
-const backupCities = [
-  "北京", "上海", "广州", "深圳", "成都", "杭州", "西安", "重庆",
-  "厦门", "三亚", "丽江", "大理", "青岛", "桂林", "张家界", "苏州",
-  "南京", "乌镇", "周庄", "凤凰古城", "平遥古城", "敦煌", "拉萨",
-  "哈尔滨", "长春", "沈阳", "大连", "威海", "烟台", "长白山", "九寨沟",
-  "黄山", "泰山", "华山", "峨眉山", "乐山", "庐山", "井冈山", "武夷山",
-  "西塘", "南浔", "同里", "甪直", "宏村", "婺源", "阳朔", "北海",
-  "海口", "万宁", "文昌", "琼海", "五指山", "陵水",
-  "珠海", "汕头", "潮州", "揭阳", "梅州", "韶关", "肇庆", "惠州",
-  "昆明", "香格里拉", "西双版纳", "腾冲", "瑞丽",
-  "贵阳", "黄果树", "梵净山", "镇远", "西江千户苗寨", "荔波",
-  "郑州", "洛阳", "开封", "安阳", "新乡", "云台山", "少林寺",
-  "武汉", "长沙", "衡山", "岳阳", "武当山",
-  "太原", "五台山", "大同", "乔家大院", "壶口瀑布",
-  "兰州", "张掖", "嘉峪关", "青海湖", "茶卡盐湖", "塔尔寺",
-  "乌鲁木齐", "天山", "吐鲁番", "喀纳斯", "伊犁", "赛里木湖",
-  "银川", "中卫", "沙湖", "镇北堡影视城", "西夏王陵",
-  "呼和浩特", "希拉穆仁", "响沙湾", "鄂尔多斯", "呼伦贝尔", "满洲里",
-];
-
-// 获取随机旅游城市（从数据库）
-const getRandomCity = async () => {
-  const { data } = await supabase
-    .from("cities")
-    .select("name")
-    .limit(1)
-    .order("random");
-
-  if (data && data.length > 0) {
-    return data[0].name;
-  }
-  // 备用：随机从本地库选择
-  return backupCities[Math.floor(Math.random() * backupCities.length)];
-};
 
 export default function Home() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
-  const [leaderboard, setLeaderboard] = useState<Entry[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [trees, setTrees] = useState<Tree[]>([]);
+  const [treeCount, setTreeCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [randomCity, setRandomCity] = useState("");
-  const [isRolling, setIsRolling] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<any>(null);
 
-  // 获取排行榜和总人数
-  const fetchLeaderboard = async () => {
-    // 查询最新3条
+  // 加载 Three.js 并初始化场景
+  useEffect(() => {
+    const initScene = async () => {
+      // 动态加载 Three.js CDN
+      const THREE = await import("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js");
+      
+      // 如果场景已初始化，跳过
+      if (sceneRef.current) return;
+
+      const container = canvasRef.current;
+      if (!container) return;
+
+      // 创建场景
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+      scene.fog = new THREE.Fog(0x87ceeb, 50, 150);
+
+      // 创建相机
+      const camera = new THREE.PerspectiveCamera(
+        60,
+        container.clientWidth / container.clientHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(0, 30, 50);
+      camera.lookAt(0, 0, 0);
+
+      // 创建渲染器
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      container.appendChild(renderer.domElement);
+
+      // 添加灯光
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(50, 100, 50);
+      scene.add(directionalLight);
+
+      // 创建地面
+      const groundGeometry = new THREE.PlaneGeometry(200, 200);
+      const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x90ee90 });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = 0;
+      scene.add(ground);
+
+      // 存储引用
+      sceneRef.current = { THREE, scene, camera, renderer, trees: [] };
+
+      // 渲染循环
+      const animate = () => {
+        requestAnimationFrame(animate);
+        
+        // 树轻微摇摆
+        const treeMeshes = sceneRef.current?.treeMeshes || [];
+        treeMeshes.forEach((mesh: any, i: number) => {
+          mesh.rotation.z = Math.sin(Date.now() * 0.001 + i) * 0.02;
+        });
+        
+        renderer.render(scene, camera);
+      };
+      animate();
+
+      // 窗口大小调整
+      const handleResize = () => {
+        if (!container || !sceneRef.current) return;
+        const { camera, renderer } = sceneRef.current;
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      };
+      window.addEventListener("resize", handleResize);
+
+      // 简单鼠标控制相机
+      let isDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+      let cameraAngle = { x: 0, y: 0.3 };
+
+      const onMouseDown = (e: MouseEvent) => {
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      };
+
+      const onMouseMove = (e: MouseEvent) => {
+        if (!isDragging || !sceneRef.current) return;
+        const deltaX = e.clientX - previousMousePosition.x;
+        const deltaY = e.clientY - previousMousePosition.y;
+        cameraAngle.x += deltaX * 0.005;
+        cameraAngle.y = Math.max(0.1, Math.min(0.8, cameraAngle.y + deltaY * 0.005));
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+        
+        const { camera } = sceneRef.current;
+        const distance = 60;
+        camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+        camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
+        camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+        camera.lookAt(0, 5, 0);
+      };
+
+      const onMouseUp = () => {
+        isDragging = false;
+      };
+
+      container.addEventListener("mousedown", onMouseDown);
+      container.addEventListener("mousemove", onMouseMove);
+      container.addEventListener("mouseup", onMouseUp);
+      container.addEventListener("mouseleave", onMouseUp);
+
+      // 触摸支持
+      container.addEventListener("touchstart", (e: TouchEvent) => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      });
+      container.addEventListener("touchmove", (e: TouchEvent) => {
+        if (!isDragging || !sceneRef.current || e.touches.length !== 1) return;
+        const deltaX = e.touches[0].clientX - previousMousePosition.x;
+        const deltaY = e.touches[0].clientY - previousMousePosition.y;
+        cameraAngle.x += deltaX * 0.005;
+        cameraAngle.y = Math.max(0.1, Math.min(0.8, cameraAngle.y + deltaY * 0.005));
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        
+        const { camera } = sceneRef.current;
+        const distance = 60;
+        camera.position.x = Math.sin(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+        camera.position.y = distance * Math.sin(cameraAngle.y) + 10;
+        camera.position.z = Math.cos(cameraAngle.x) * distance * Math.cos(cameraAngle.y);
+        camera.lookAt(0, 5, 0);
+      });
+      container.addEventListener("touchend", () => { isDragging = false; });
+
+      // 加载初始树木
+      fetchTrees();
+    };
+
+    initScene();
+  }, []);
+
+  // 获取森林中的所有树
+  const fetchTrees = async () => {
     const { data, error } = await supabase
-      .from("text_entries")
-      .select("id, name, created_at")
-      .order("created_at", { ascending: false })
-      .limit(3);
-
-    // 查询总人数
-    const { count } = await supabase
-      .from("text_entries")
-      .select("*", { count: "exact", head: true });
+      .from("forest")
+      .select("id, name, position_x, position_z, tree_type")
+      .order("id", { ascending: true });
 
     if (!error && data) {
-      setLeaderboard(data as Entry[]);
-    }
-    if (count !== null) {
-      setTotalCount(count);
+      setTrees(data as Tree[]);
+      setTreeCount(data.length);
+      addTreesToScene(data as Tree[]);
     }
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchLeaderboard();
-  }, []);
+  // 添加树到 3D 场景
+  const addTreesToScene = (treeData: Tree[]) => {
+    if (!sceneRef.current) return;
+    const { THREE, scene } = sceneRef.current;
+    
+    // 清除旧树
+    if (sceneRef.current.treeMeshes) {
+      sceneRef.current.treeMeshes.forEach((mesh: any) => scene.remove(mesh));
+    }
+    sceneRef.current.treeMeshes = [];
 
+    treeData.forEach((tree) => {
+      const treeGroup = new THREE.Group();
+
+      // 随机树类型（不同大小）
+      const scale = 0.5 + tree.tree_type * 0.3;
+
+      // 树干
+      const trunkGeometry = new THREE.CylinderGeometry(0.3 * scale, 0.5 * scale, 3 * scale, 6);
+      const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+      trunk.position.y = 1.5 * scale;
+      treeGroup.add(trunk);
+
+      // 树冠（多层三角形）
+      const colors = [0x228b22, 0x32cd32, 0x006400];
+      const color = colors[tree.tree_type % 3];
+      
+      for (let i = 0; i < 3; i++) {
+        const coneGeometry = new THREE.ConeGeometry(
+          (2.5 - i * 0.5) * scale,
+          (3 - i * 0.5) * scale,
+          6
+        );
+        const coneMaterial = new THREE.MeshLambertMaterial({ color });
+        const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+        cone.position.y = (3 + i * 1.5) * scale;
+        treeGroup.add(cone);
+      }
+
+      treeGroup.position.set(tree.position_x, 0, tree.position_z);
+      scene.add(treeGroup);
+      sceneRef.current.treeMeshes.push(treeGroup);
+    });
+  };
+
+  // 添加单棵树到场景
+  const addSingleTreeToScene = (tree: Tree) => {
+    if (!sceneRef.current) return;
+    const { THREE, scene } = sceneRef.current;
+    
+    if (!sceneRef.current.treeMeshes) {
+      sceneRef.current.treeMeshes = [];
+    }
+
+    const treeGroup = new THREE.Group();
+    const scale = 0.5 + tree.tree_type * 0.3;
+
+    // 树干
+    const trunkGeometry = new THREE.CylinderGeometry(0.3 * scale, 0.5 * scale, 3 * scale, 6);
+    const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+    trunk.position.y = 1.5 * scale;
+    treeGroup.add(trunk);
+
+    // 树冠
+    const colors = [0x228b22, 0x32cd32, 0x006400];
+    const color = colors[tree.tree_type % 3];
+    
+    for (let i = 0; i < 3; i++) {
+      const coneGeometry = new THREE.ConeGeometry(
+        (2.5 - i * 0.5) * scale,
+        (3 - i * 0.5) * scale,
+        6
+      );
+      const coneMaterial = new THREE.MeshLambertMaterial({ color });
+      const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+      cone.position.y = (3 + i * 1.5) * scale;
+      treeGroup.add(cone);
+    }
+
+    treeGroup.position.set(tree.position_x, 0, tree.position_z);
+    
+    // 种植动画：从地下钻出来
+    treeGroup.scale.y = 0;
+    treeGroup.position.y = -2;
+    
+    scene.add(treeGroup);
+    sceneRef.current.treeMeshes.push(treeGroup);
+
+    // 动画
+    let progress = 0;
+    const animate = () => {
+      progress += 0.05;
+      if (progress < 1) {
+        treeGroup.scale.y = Math.sin(progress * Math.PI / 2);
+        treeGroup.position.y = -2 + progress * 2;
+        requestAnimationFrame(animate);
+      } else {
+        treeGroup.scale.y = 1;
+        treeGroup.position.y = 0;
+      }
+    };
+    animate();
+  };
+
+  // 计算树的分布位置
+  const calculatePosition = (index: number): { x: number; z: number } => {
+    const rows = Math.ceil(Math.sqrt(index + 1));
+    const perRow = Math.ceil(Math.sqrt(index + 1));
+    const spacing = 4;
+    
+    const row = Math.floor(index / perRow);
+    const col = index % perRow;
+    
+    const startX = -((perRow - 1) * spacing) / 2;
+    const startZ = -((rows - 1) * spacing) / 2;
+    
+    return {
+      x: startX + col * spacing,
+      z: startZ + row * spacing,
+    };
+  };
+
+  // 提交名字种树
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -89,276 +310,151 @@ export default function Home() {
     setSubmitting(true);
     setMessage("");
 
-    const { error } = await supabase
-      .from("text_entries")
-      .insert([{ name: name.trim() }]);
+    const newPosition = calculatePosition(treeCount);
+    const treeType = Math.floor(Math.random() * 3);
+
+    const { error } = await supabase.from("forest").insert([
+      {
+        name: name.trim(),
+        position_x: newPosition.x,
+        position_z: newPosition.z,
+        tree_type: treeType,
+      },
+    ]);
 
     if (error) {
-      setMessage("❌ 提交失败：" + error.message);
+      setMessage("❌ 失败：" + error.message);
     } else {
       setName("");
-      const city = await getRandomCity();
-      setMessage(`🎉 提交成功！推荐五一旅游：${city}`);
-      fetchLeaderboard();
+      setMessage("🌱 " + name.trim() + " 种下了一棵树！");
+      
+      // 添加新树到场景
+      const newTree: Tree = {
+        id: treeCount + 1,
+        name: name.trim(),
+        position_x: newPosition.x,
+        position_z: newPosition.z,
+        tree_type: treeType,
+      };
+      setTreeCount((prev) => prev + 1);
+      addSingleTreeToScene(newTree);
     }
     setSubmitting(false);
   };
 
-  // 随机推荐旅游城市（滚动效果）
-  const handleRandomCity = async () => {
-    if (isRolling) return;
-    setIsRolling(true);
-    setRandomCity("🎰 抽取中...");
-
-    let count = 0;
-    const interval = setInterval(async () => {
-      setRandomCity(`🎰 抽取中... ${await getRandomCity()}`);
-      count++;
-      if (count >= 10) {
-        clearInterval(interval);
-        const finalCity = await getRandomCity();
-        setRandomCity(`✈️ 你的五一推荐目的地：${finalCity}`);
-        setIsRolling(false);
-      }
-    }, 100);
-  };
-
   return (
     <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 50%, #f3e5f5 100%)",
-      padding: "1rem",
+      width: "100vw",
+      height: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+      background: "linear-gradient(180deg, #87CEEB 0%, #E0F6FF 100%)",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      boxSizing: "border-box",
     }}>
-      <div style={{ maxWidth: "480px", margin: "0 auto" }}>
-        
-        {/* 标题 */}
-        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+      {/* 3D 画布 */}
+      <div
+        ref={canvasRef}
+        style={{
+          flex: 1,
+          width: "100%",
+          cursor: "grab",
+        }}
+      />
+
+      {/* 底部输入区域 */}
+      <div style={{
+        background: "rgba(255, 255, 255, 0.95)",
+        padding: "1.5rem",
+        borderTopLeftRadius: "20px",
+        borderTopRightRadius: "20px",
+        boxShadow: "0 -4px 20px rgba(0,0,0,0.1)",
+      }}>
+        {/* 标题和计数 */}
+        <div style={{
+          textAlign: "center",
+          marginBottom: "1rem",
+        }}>
           <h1 style={{
-            fontSize: "clamp(1.4rem, 5vw, 1.8rem)",
+            fontSize: "1.5rem",
             fontWeight: 700,
             color: "#2d3748",
-            marginBottom: "0.5rem",
+            marginBottom: "0.25rem",
           }}>
-            ✈️ 你的五一旅行目的地
+            🌲 3D 森林
           </h1>
-          <p style={{ color: "#718096", fontSize: "0.9rem" }}>
-            输入名字，看看系统推荐你去哪里玩
+          <p style={{
+            color: "#718096",
+            fontSize: "0.9rem",
+          }}>
+            已有 <span style={{ color: "#228b22", fontWeight: 600 }}>{treeCount}</span> 棵树 🪴
           </p>
         </div>
 
         {/* 输入表单 */}
         <form onSubmit={handleSubmit} style={{
-          background: "white",
-          borderRadius: "16px",
-          padding: "1.25rem",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-          marginBottom: "1.25rem",
-          boxSizing: "border-box",
+          display: "flex",
+          gap: "0.5rem",
+          maxWidth: "400px",
+          margin: "0 auto",
         }}>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="请输入你的姓名..."
+            placeholder="输入你的名字..."
             disabled={submitting}
-            maxLength={20}
+            maxLength={15}
             style={{
-              width: "100%",
+              flex: 1,
               padding: "0.875rem 1rem",
               fontSize: "1rem",
               border: "2px solid #e2e8f0",
               borderRadius: "12px",
               outline: "none",
-              transition: "border-color 0.2s",
               boxSizing: "border-box",
-              marginBottom: "1rem",
             }}
           />
           <button
             type="submit"
             disabled={submitting}
             style={{
-              width: "100%",
-              padding: "0.875rem",
+              padding: "0.875rem 1.5rem",
               fontSize: "1rem",
               fontWeight: 600,
               color: "#fff",
-              background: submitting ? "#a0aec0" : "linear-gradient(135deg, #68d391, #48bb78)",
+              background: submitting ? "#a0aec0" : "linear-gradient(135deg, #228b22, #32cd32)",
               border: "none",
               borderRadius: "12px",
               cursor: submitting ? "not-allowed" : "pointer",
-              transition: "all 0.2s",
-              boxShadow: "0 4px 12px rgba(72, 187, 120, 0.3)",
+              whiteSpace: "nowrap",
             }}
           >
-            {submitting ? "提交中..." : "✨ 参与排行"}
+            {submitting ? "🌱..." : "🌱 种树"}
           </button>
-          {message && (
-            <p style={{
-              marginTop: "1rem",
-              padding: "0.75rem",
-              background: message.startsWith("✅") ? "#f0fff4" : "#fff5f5",
-              borderRadius: "10px",
-              color: message.startsWith("✅") ? "#2f855a" : "#c53030",
-              textAlign: "center",
-              fontSize: "0.9rem",
-            }}>
-              {message}
-            </p>
-          )}
         </form>
 
-        {/* 排行榜 */}
-        <div style={{
-          background: "white",
-          borderRadius: "16px",
-          padding: "1.25rem",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-          boxSizing: "border-box",
-        }}>
-          <h2 style={{
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "#2d3748",
-            marginBottom: "1rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
+        {message && (
+          <p style={{
+            marginTop: "1rem",
+            padding: "0.75rem",
+            background: message.startsWith("❌") ? "#fff5f5" : "#f0fff4",
+            borderRadius: "10px",
+            color: message.startsWith("❌") ? "#c53030" : "#2f855a",
+            textAlign: "center",
+            fontSize: "0.9rem",
           }}>
-            🏆 参与排行
-          </h2>
-          
-          {loading ? (
-            <p style={{ textAlign: "center", color: "#a0aec0", padding: "2rem" }}>
-              加载中...
-            </p>
-          ) : leaderboard.length === 0 ? (
-            <p style={{ textAlign: "center", color: "#a0aec0", padding: "2rem" }}>
-              还没有人参与，快来留言吧！
-            </p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-              {leaderboard.map((entry, index) => (
-                <div
-                  key={entry.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "0.75rem 0.875rem",
-                    background: index === 0 ? "linear-gradient(135deg, #fef3c7, #fde68a)" :
-                               index === 1 ? "linear-gradient(135deg, #f3f4f6, #e5e7eb)" :
-                               index === 2 ? "linear-gradient(135deg, #fef3c7, #fde68a)" :
-                               "#f7fafc",
-                    borderRadius: "12px",
-                    border: index < 3 ? "2px solid rgba(0,0,0,0.05)" : "none",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  <span style={{
-                    fontSize: "1.1rem",
-                    fontWeight: 700,
-                    width: "2.2rem",
-                    textAlign: "center",
-                    color: index === 0 ? "#d97706" : index < 3 ? "#92400e" : "#a0aec0",
-                    flexShrink: 0,
-                  }}>
-                    #{entry.id}
-                  </span>
-                  <span style={{
-                    flex: 1,
-                    fontSize: "0.95rem",
-                    fontWeight: 500,
-                    color: "#2d3748",
-                    marginLeft: "0.5rem",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}>
-                    {entry.name}
-                  </span>
-                  <span style={{
-                    fontSize: "0.75rem",
-                    color: "#a0aec0",
-                    marginLeft: "0.5rem",
-                    flexShrink: 0,
-                  }}>
-                    {new Date(entry.created_at).toLocaleString("zh-CN", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 随机推荐旅游城市 */}
-        <div style={{
-          background: "white",
-          borderRadius: "16px",
-          padding: "1.25rem",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-          boxSizing: "border-box",
-          marginTop: "1.25rem",
-        }}>
-          <h2 style={{
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "#2d3748",
-            marginBottom: "1rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-          }}>
-            🎲 随机看看你五一想去的城市
-          </h2>
-          <button
-            onClick={handleRandomCity}
-            disabled={isRolling}
-            style={{
-              width: "100%",
-              padding: "0.875rem",
-              fontSize: "1rem",
-              fontWeight: 600,
-              color: "#fff",
-              background: isRolling ? "#a0aec0" : "linear-gradient(135deg, #667eea, #764ba2)",
-              border: "none",
-              borderRadius: "12px",
-              cursor: isRolling ? "not-allowed" : "pointer",
-              transition: "all 0.2s",
-              boxShadow: isRolling ? "none" : "0 4px 12px rgba(102, 126, 234, 0.3)",
-            }}
-          >
-            {isRolling ? "🎰 抽取中..." : "🎯 试试手气"}
-          </button>
-          {randomCity && (
-            <p style={{
-              marginTop: "1rem",
-              padding: "0.875rem",
-              background: "linear-gradient(135deg, #fef3c7, #fde68a)",
-              borderRadius: "12px",
-              color: "#92400e",
-              textAlign: "center",
-              fontSize: "1rem",
-              fontWeight: 600,
-            }}>
-              {randomCity}
-            </p>
-          )}
-        </div>
+            {message}
+          </p>
+        )}
 
         <p style={{
           textAlign: "center",
-          marginTop: "1.25rem",
+          marginTop: "0.75rem",
           color: "#a0aec0",
           fontSize: "0.75rem",
         }}>
-          共 {totalCount} 人参与
+          拖动鼠标旋转视角 | 滚动缩放
         </p>
       </div>
     </div>
