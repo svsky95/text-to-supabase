@@ -9,6 +9,31 @@ interface Entry {
   created_at: string;
 }
 
+// 随机四字短语库
+const phrases = [
+  "龙腾虎跃", "凤鸣朝阳", "心想事成", "福运连连",
+  "笑口常开", "步步高升", "学业进步", "财运亨通",
+  "身体健康", "万事如意", "旗开得胜", "一帆风顺",
+  "金榜题名", "喜事连连", "福如东海", "寿比南山",
+  "左右逢源", "如鱼得水", "蒸蒸日上", "红红火火",
+  "才华横溢", "出类拔萃", "不同凡响", "超凡脱俗",
+  "风度翩翩", "温文尔雅", "亭亭玉立", "眉清目秀",
+  "精神抖擞", "神采奕奕", "意气风发", "斗志昂扬",
+  "胸有成竹", "稳操胜券", "志在必得", "勇往直前",
+  "前程似锦", "鹏程万里", "飞黄腾达", "平步青云",
+  "和气生财", "和衷共济", "和颜悦色", "和和美美",
+  "福星高照", "吉星高照", "紫气东来", "瑞气盈门",
+  "开门大吉", "好事成双", "双喜临门", "三阳开泰",
+  "五福临门", "六六大顺", "七星高照", "八方来财",
+  "十全十美", "百花齐放", "百家争鸣", "推陈出新",
+  "与时俱进", "开拓创新", "敢为人先", "力争上游",
+];
+
+// 获取随机短语
+const getRandomPhrase = () => {
+  return phrases[Math.floor(Math.random() * phrases.length)];
+};
+
 export default function Home() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -59,7 +84,8 @@ export default function Home() {
       setMessage("❌ 提交失败：" + error.message);
     } else {
       setName("");
-      setMessage("✅ 提交成功！");
+      const phrase = getRandomPhrase();
+      setMessage(`✅ 提交成功！今日运势：${phrase}`);
       fetchLeaderboard();
     }
     setSubmitting(false);
