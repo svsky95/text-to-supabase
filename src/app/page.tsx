@@ -18,7 +18,7 @@ function getSupabase(): SupabaseClient {
   if (!supabaseClient) {
     supabaseClient = createClient(
       "https://hjejbcfrpnzslfoptfdu.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWpiY2ZycG56c2xmb3B0ZmR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTE2NDcsImV4cCI6MjA5MjUyNzY0N30.6Rk8xwjRj3YjZ_c9T5gQ9gY8W3xvJ5H7K4R5vB9yX1E"
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWpiY2ZycG56c2xmb3B0ZmR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Njk1MTY0NywiZXhwIjoyMDkyNTI3NjQ3fQ.XhRUJ9km77SY_BWyjevkm4S6U8kSUj4XxfvToKkQY1Y"
     );
   }
   return supabaseClient;
