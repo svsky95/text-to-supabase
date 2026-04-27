@@ -13,7 +13,7 @@ interface Tree {
 }
 
 const TREE_TYPES = 5;
-const TREE_SPACING = 8;
+const TREE_SPACING = 13;
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -123,7 +123,7 @@ export default function Home() {
     scene.fog = new THREE.FogExp2(0x7986cb, 0.008);
 
     const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 1000);
-    camera.position.set(0, 45, 70);
+    camera.position.set(0, 55, 90);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -133,30 +133,51 @@ export default function Home() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    // Sun
+    // Sun - lower in sky for longer light rays
     const sunMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(6, 16, 16),
+      new THREE.SphereGeometry(7, 16, 16),
       new THREE.MeshBasicMaterial({ color: 0xfff9c4 })
     );
-    sunMesh.position.set(60, 80, -80);
+    sunMesh.position.set(50, 30, -60);
     scene.add(sunMesh);
 
     // Sun glow
     for (let i = 3; i >= 1; i--) {
       const glow = new THREE.Mesh(
-        new THREE.SphereGeometry(6 + i * 3, 16, 16),
-        new THREE.MeshBasicMaterial({ color: 0xfff59d, transparent: true, opacity: 0.06 / i })
+        new THREE.SphereGeometry(7 + i * 4, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0xfff59d, transparent: true, opacity: 0.08 / i })
       );
       glow.position.copy(sunMesh.position);
       scene.add(glow);
+    }
+
+    // Sun rays (god rays) - volumetric light beams
+    const rayMat = new THREE.MeshBasicMaterial({
+      color: 0xfffde7, transparent: true, opacity: 0.035, side: THREE.DoubleSide, depthWrite: false
+    });
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const ray = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 5, 120, 6, 1, true),
+        rayMat.clone()
+      );
+      ray.material.opacity = 0.025 + Math.random() * 0.02;
+      ray.position.set(
+        sunMesh.position.x + Math.cos(angle) * 1.5,
+        sunMesh.position.y - 30,
+        sunMesh.position.z + Math.sin(angle) * 1.5
+      );
+      ray.rotation.x = Math.atan2(30, 60);
+      ray.rotation.z = angle;
+      scene.add(ray);
     }
 
     // Ambient light (soft blue)
     scene.add(new THREE.AmbientLight(0xb3d9ff, 0.5));
 
     // Sun directional light
-    const sunLight = new THREE.DirectionalLight(0xfffbe6, 1.0);
-    sunLight.position.set(60, 80, -80);
+    const sunLight = new THREE.DirectionalLight(0xfffbe6, 1.2);
+    sunLight.position.set(50, 30, -60);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.set(2048, 2048);
     sunLight.shadow.camera.near = 0.5;
@@ -227,7 +248,9 @@ export default function Home() {
       if (!ref) return;
       const t = Date.now() * 0.001;
       ref.treeMeshes.forEach((mesh: any, i: number) => {
-        mesh.rotation.z = Math.sin(t + i * 0.7) * 0.018;
+        const sway = Math.sin(t * 1.2 + i * 0.9) * 0.06;
+        mesh.rotation.z = sway;
+        mesh.rotation.x = Math.sin(t * 0.7 + i * 1.3) * 0.015;
       });
       // Make labels always face camera
       ref.treeLabels.forEach((label: any) => {
@@ -256,11 +279,11 @@ export default function Home() {
       const ref = sceneRef.current;
       if (!ref) return;
       const { camera } = ref;
-      const d = 85;
+      const d = 100;
       camera.position.x = Math.sin(camAngle.x) * d * Math.cos(camAngle.y);
       camera.position.y = d * Math.sin(camAngle.y) + 8;
       camera.position.z = Math.cos(camAngle.x) * d * Math.cos(camAngle.y);
-      camera.lookAt(0, 3, 0);
+      camera.lookAt(0, 5, 0);
     };
 
     container.addEventListener("mousedown", (e: MouseEvent) => { dragging = true; prevX = e.clientX; prevY = e.clientY; });
