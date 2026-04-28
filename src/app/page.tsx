@@ -8,6 +8,7 @@ interface Tree {
   name: string;
   position_x: number;
   position_z: number;
+  position_y: number;
   tree_type: number;
   created_at?: string;
 }
@@ -21,10 +22,50 @@ function getSupabase(): SupabaseClient {
   if (!supabaseClient) {
     supabaseClient = createClient(
       "https://hjejbcfrpnzslfoptfdu.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWpiY2ZycG56c2xmb3B0ZmR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Njk1MTY0NywiZXhwIjoyMDkyNTI3NjQ3fQ.XhRUJ9km77SY_BWyjevkm4S6U8kSUj4XxfvToKkQY1Y"
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWpiY2Zmcm5uemxIZG9mZHR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTQwODkyMDB9.5GXYbYddSrV8dLJ_8g2Rz8F5cBvZv_3YqN96aVN6p_c"
     );
   }
   return supabaseClient;
+}
+
+// ============================================================
+// Mountain configuration - multiple peaks
+// ============================================================
+interface MountainPeak {
+  x: number;       // center X
+  z: number;       // center Z
+  height: number;  // peak height
+  radius: number;  // base radius
+}
+
+const MOUNTAINS: MountainPeak[] = [
+  // Main central mountain
+  { x: 0,   z: 0,   height: 40, radius: 70 },
+  // Surrounding peaks
+  { x: -55, z: -35, height: 28, radius: 50 },
+  { x: 60,  z: -30, height: 25, radius: 45 },
+  { x: 50,  z: 55,  height: 22, radius: 42 },
+  { x: -50, z: 50,  height: 20, radius: 38 },
+  { x: 0,   z: -70, height: 18, radius: 35 },
+  { x: -65, z: 10,  height: 16, radius: 32 },
+  { x: 70,  z: 15,  height: 15, radius: 30 },
+];
+
+// Calculate mountain height at any X,Z position
+function getMountainHeight(x: number, z: number): number {
+  let maxH = 0;
+  for (const m of MOUNTAINS) {
+    const dx = x - m.x;
+    const dz = z - m.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < m.radius) {
+      // Smooth falloff using cosine: height = h * 0.5 * (1 + cos(pi * dist / radius))
+      const normalized = dist / m.radius;
+      const h = m.height * 0.5 * (1 + Math.cos(normalized * Math.PI));
+      if (h > maxH) maxH = h;
+    }
+  }
+  return maxH;
 }
 
 function getGrowthScale(createdAt: string | undefined): number {
@@ -41,7 +82,6 @@ function createTextSprite(THREE: any, text: string) {
   const ctx = canvas.getContext("2d")!;
   ctx.clearRect(0, 0, 512, 128);
 
-  // 气泡背景
   ctx.shadowColor = "rgba(0,0,0,0.3)";
   ctx.shadowBlur = 12;
   ctx.fillStyle = "rgba(30,80,30,0.88)";
@@ -49,7 +89,6 @@ function createTextSprite(THREE: any, text: string) {
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  // 名字
   ctx.font = "bold 64px sans-serif";
   ctx.fillStyle = "#e8f5e9";
   ctx.textAlign = "center";
@@ -64,6 +103,140 @@ function createTextSprite(THREE: any, text: string) {
   const sprite = new THREE.Sprite(mat);
   sprite.scale.set(9, 2.25, 1);
   return sprite;
+}
+
+// ============================================================
+// Build a mountain mesh (cone + snow cap)
+// ============================================================
+function buildMountainMesh(THREE: any, peak: MountainPeak) {
+  const group = new THREE.Group();
+
+  // Rocky base (lower part) - dark gray
+  const baseMat = new THREE.MeshLambertMaterial({ color: 0x6d5c52 });
+  const base = new THREE.Mesh(
+    new THREE.ConeGeometry(peak.radius, peak.height * 0.55, 12),
+    baseMat
+  );
+  base.position.y = peak.height * 0.275;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  group.add(base);
+
+  // Mountain body (middle part) - brownish green / earthy
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x5d7a3a });
+  const body = new THREE.Mesh(
+    new THREE.ConeGeometry(peak.radius * 0.78, peak.height * 0.45, 12),
+    bodyMat
+  );
+  body.position.y = peak.height * 0.55 + peak.height * 0.225;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Snow cap (top part) - white
+  const snowMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
+  const snow = new THREE.Mesh(
+    new THREE.ConeGeometry(peak.radius * 0.38, peak.height * 0.25, 12),
+    snowMat
+  );
+  snow.position.y = peak.height * 0.55 + peak.height * 0.45 + peak.height * 0.125;
+  snow.castShadow = true;
+  group.add(snow);
+
+  return group;
+}
+
+// ============================================================
+// Build a single tree (positioned on mountain)
+// ============================================================
+function buildTree(tree: Tree, THREE: any): any {
+  const group = new THREE.Group();
+  const type = tree.tree_type % TREE_TYPES;
+
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4037 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.45, 3.5, 8), trunkMat);
+  trunk.position.y = 1.75;
+  trunk.castShadow = true;
+  group.add(trunk);
+
+  if (type === 0) {
+    const crownMat = new THREE.MeshLambertMaterial({ color: 0x2e7d32 });
+    const crown1 = new THREE.Mesh(new THREE.SphereGeometry(2.8, 8, 8), crownMat);
+    crown1.position.y = 6; crown1.scale.set(1, 0.85, 1);
+    group.add(crown1);
+    const crown2 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 8), new THREE.MeshLambertMaterial({ color: 0x388e3c }));
+    crown2.position.y = 7.5; crown2.scale.set(1, 0.9, 1);
+    group.add(crown2);
+    const crown3 = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 8), new THREE.MeshLambertMaterial({ color: 0x43a047 }));
+    crown3.position.y = 8.8;
+    group.add(crown3);
+    const moss = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.5, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0x33691e }));
+    moss.position.y = 0.25;
+    group.add(moss);
+  } else if (type === 1) {
+    const trunk2 = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.38, 2.2, 8), new THREE.MeshLambertMaterial({ color: 0x4e342e }));
+    trunk2.position.y = 1.1;
+    group.add(trunk2);
+    const colors2 = [0xf48fb1, 0xf8bbd9, 0xffc0de];
+    for (let i = 0; i < 3; i++) {
+      const c = new THREE.Mesh(new THREE.SphereGeometry(2.5 - i * 0.5, 8, 8), new THREE.MeshLambertMaterial({ color: colors2[i] }));
+      c.position.y = 3.5 + i * 1.5;
+      c.castShadow = true;
+      group.add(c);
+    }
+    for (let i = 0; i < 25; i++) {
+      const p = new THREE.Mesh(new THREE.SphereGeometry(0.18, 5, 5), new THREE.MeshLambertMaterial({ color: 0xfff0f5 }));
+      p.position.set((Math.random() - 0.5) * 5, 3 + Math.random() * 4, (Math.random() - 0.5) * 5);
+      group.add(p);
+    }
+  } else if (type === 2) {
+    const trunk3 = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.48, 3.8, 8), new THREE.MeshLambertMaterial({ color: 0x6d4c41 }));
+    trunk3.position.y = 1.9;
+    group.add(trunk3);
+    const maples = [
+      { y: 5.5, r: 2.6, color: 0xe64a19 },
+      { y: 7.2, r: 2.1, color: 0xff5722 },
+      { y: 8.6, r: 1.5, color: 0xff7043 },
+    ];
+    maples.forEach(m => {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(m.r, 3.5, 8), new THREE.MeshLambertMaterial({ color: m.color }));
+      cone.position.y = m.y;
+      cone.castShadow = true;
+      group.add(cone);
+    });
+  } else if (type === 3) {
+    const trunk4 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 5.5, 8), new THREE.MeshLambertMaterial({ color: 0x3e2723 }));
+    trunk4.position.y = 2.75;
+    group.add(trunk4);
+    const pine = [
+      { y: 4.5, r: 3.0, h: 3.0 },
+      { y: 6.5, r: 2.4, h: 2.8 },
+      { y: 8.2, r: 1.8, h: 2.5 },
+      { y: 9.6, r: 1.2, h: 2.0 },
+    ];
+    pine.forEach(p => {
+      const c = new THREE.Mesh(new THREE.ConeGeometry(p.r, p.h, 8), new THREE.MeshLambertMaterial({ color: 0x1b5e20 }));
+      c.position.y = p.y;
+      c.castShadow = true;
+      group.add(c);
+    });
+  } else {
+    const trunk5 = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 5.5, 6), new THREE.MeshLambertMaterial({ color: 0x8d6e63 }));
+    trunk5.position.y = 2.75;
+    group.add(trunk5);
+    for (let i = 0; i < 7; i++) {
+      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.4, 4.5, 4), new THREE.MeshLambertMaterial({ color: 0x43a047 }));
+      leaf.position.y = 5.8;
+      leaf.rotation.z = 0.7;
+      leaf.rotation.y = (i / 7) * Math.PI * 2;
+      group.add(leaf);
+    }
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshLambertMaterial({ color: 0x66bb6a }));
+    top.position.y = 5.8;
+    group.add(top);
+  }
+
+  return group;
 }
 
 export default function Home() {
@@ -103,7 +276,7 @@ export default function Home() {
     if (!THREE || sceneRef.current) return;
     const container = canvasRef.current!;
 
-    // --- Sky gradient background via shader ---
+    // --- Sky gradient background ---
     const skyCanvas = document.createElement("canvas");
     skyCanvas.width = 2;
     skyCanvas.height = 512;
@@ -120,11 +293,11 @@ export default function Home() {
 
     const scene = new THREE.Scene();
     scene.background = skyTex;
-    scene.fog = new THREE.FogExp2(0x7986cb, 0.008);
+    scene.fog = new THREE.FogExp2(0x7986cb, 0.006);
 
     const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 1000);
-    camera.position.set(0, 55, 90);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(0, 80, 130);
+    camera.lookAt(0, 15, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -133,12 +306,12 @@ export default function Home() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
-    // Sun - lower in sky for longer light rays
+    // Sun
     const sunMesh = new THREE.Mesh(
       new THREE.SphereGeometry(7, 16, 16),
       new THREE.MeshBasicMaterial({ color: 0xfff9c4 })
     );
-    sunMesh.position.set(50, 30, -60);
+    sunMesh.position.set(60, 50, -80);
     scene.add(sunMesh);
 
     // Sun glow
@@ -151,54 +324,35 @@ export default function Home() {
       scene.add(glow);
     }
 
-    // Sun rays (god rays) - volumetric light beams
-    const rayMat = new THREE.MeshBasicMaterial({
-      color: 0xfffde7, transparent: true, opacity: 0.035, side: THREE.DoubleSide, depthWrite: false
-    });
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const ray = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4, 5, 120, 6, 1, true),
-        rayMat.clone()
-      );
-      ray.material.opacity = 0.025 + Math.random() * 0.02;
-      ray.position.set(
-        sunMesh.position.x + Math.cos(angle) * 1.5,
-        sunMesh.position.y - 30,
-        sunMesh.position.z + Math.sin(angle) * 1.5
-      );
-      ray.rotation.x = Math.atan2(30, 60);
-      ray.rotation.z = angle;
-      scene.add(ray);
-    }
-
-    // Ambient light (soft blue)
+    // Ambient light
     scene.add(new THREE.AmbientLight(0xb3d9ff, 0.5));
 
     // Sun directional light
     const sunLight = new THREE.DirectionalLight(0xfffbe6, 1.2);
-    sunLight.position.set(50, 30, -60);
+    sunLight.position.set(60, 50, -80);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.set(2048, 2048);
     sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 300;
-    sunLight.shadow.camera.left = -80;
-    sunLight.shadow.camera.right = 80;
-    sunLight.shadow.camera.top = 80;
-    sunLight.shadow.camera.bottom = -80;
+    sunLight.shadow.camera.far = 400;
+    sunLight.shadow.camera.left = -120;
+    sunLight.shadow.camera.right = 120;
+    sunLight.shadow.camera.top = 120;
+    sunLight.shadow.camera.bottom = -120;
     scene.add(sunLight);
 
-    // Hemisphere light for natural sky bounce
+    // Hemisphere light
     scene.add(new THREE.HemisphereLight(0x87ceeb, 0x3d8b37, 0.4));
 
-    // Ground - beautiful grass texture
+    // ============================================================
+    // Mountain ground (elevated base plane for the mountain area)
+    // ============================================================
+    // The ground is the base flat terrain - mountains sit on top
     const groundCanvas = document.createElement("canvas");
     groundCanvas.width = 512;
     groundCanvas.height = 512;
     const gctx = groundCanvas.getContext("2d")!;
     gctx.fillStyle = "#4caf50";
     gctx.fillRect(0, 0, 512, 512);
-    // Add subtle noise
     for (let i = 0; i < 3000; i++) {
       const x = Math.random() * 512, y = Math.random() * 512;
       const g = Math.random() * 40 + 60;
@@ -207,35 +361,47 @@ export default function Home() {
     }
     const groundTex = new THREE.CanvasTexture(groundCanvas);
     groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
-    groundTex.repeat.set(12, 12);
+    groundTex.repeat.set(16, 16);
 
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(300, 300),
+      new THREE.PlaneGeometry(400, 400),
       new THREE.MeshLambertMaterial({ map: groundTex })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Small decorative plants / flowers
+    // ============================================================
+    // Add mountains
+    // ============================================================
+    MOUNTAINS.forEach(peak => {
+      const mountain = buildMountainMesh(THREE, peak);
+      scene.add(mountain);
+    });
+
+    // Small decorative plants / flowers (on ground level)
     const decorMat = new THREE.MeshLambertMaterial({ color: 0x66bb6a });
     const flowerColors = [0xffeb3b, 0xff4081, 0xff9800, 0xe040fb, 0x40c4ff];
     for (let i = 0; i < 200; i++) {
-      const x = (Math.random() - 0.5) * 260;
-      const z = (Math.random() - 0.5) * 260;
-      if (Math.random() > 0.35) {
-        const h = 0.15 + Math.random() * 0.25;
-        const g = new THREE.Mesh(new THREE.ConeGeometry(0.08, h, 4), decorMat);
-        g.position.set(x, h / 2, z);
-        scene.add(g);
-      } else {
-        const fc = flowerColors[Math.floor(Math.random() * flowerColors.length)];
-        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.25, 4), decorMat);
-        stem.position.set(x, 0.125, z);
-        scene.add(stem);
-        const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshLambertMaterial({ color: fc }));
-        bloom.position.set(x, 0.32, z);
-        scene.add(bloom);
+      const x = (Math.random() - 0.5) * 320;
+      const z = (Math.random() - 0.5) * 320;
+      const h = getMountainHeight(x, z);
+      // Only add flowers on flat ground, not on mountains
+      if (h < 0.5) {
+        if (Math.random() > 0.35) {
+          const hh = 0.15 + Math.random() * 0.25;
+          const g = new THREE.Mesh(new THREE.ConeGeometry(0.08, hh, 4), decorMat);
+          g.position.set(x, hh / 2, z);
+          scene.add(g);
+        } else {
+          const fc = flowerColors[Math.floor(Math.random() * flowerColors.length)];
+          const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.25, 4), decorMat);
+          stem.position.set(x, 0.125, z);
+          scene.add(stem);
+          const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshLambertMaterial({ color: fc }));
+          bloom.position.set(x, 0.32, z);
+          scene.add(bloom);
+        }
       }
     }
 
@@ -252,7 +418,6 @@ export default function Home() {
         mesh.rotation.z = sway;
         mesh.rotation.x = Math.sin(t * 0.7 + i * 1.3) * 0.015;
       });
-      // Make labels always face camera
       ref.treeLabels.forEach((label: any) => {
         label.lookAt(ref.camera.position);
       });
@@ -260,7 +425,6 @@ export default function Home() {
     };
     animate();
 
-    // Grow timer - every 2 hours (here we simulate: 30s = 1 level for testing)
     growthTimer.current = setInterval(() => updateTreeGrowth(), 30000);
 
     window.addEventListener("resize", () => {
@@ -273,17 +437,17 @@ export default function Home() {
 
     // Camera controls
     let dragging = false, prevX = 0, prevY = 0;
-    let camAngle = { x: 0, y: 0.4 };
+    let camAngle = { x: 0, y: 0.35 };
 
     const applyCam = () => {
       const ref = sceneRef.current;
       if (!ref) return;
       const { camera } = ref;
-      const d = 100;
+      const d = 140;
       camera.position.x = Math.sin(camAngle.x) * d * Math.cos(camAngle.y);
-      camera.position.y = d * Math.sin(camAngle.y) + 8;
+      camera.position.y = d * Math.sin(camAngle.y) + 10;
       camera.position.z = Math.cos(camAngle.x) * d * Math.cos(camAngle.y);
-      camera.lookAt(0, 5, 0);
+      camera.lookAt(0, 20, 0);
     };
 
     container.addEventListener("mousedown", (e: MouseEvent) => { dragging = true; prevX = e.clientX; prevY = e.clientY; });
@@ -323,9 +487,10 @@ export default function Home() {
 
   const fetchTrees = async () => {
     if (!supabaseRef.current) return;
+    // Try to fetch with position_y (new column), fall back to old query
     const { data } = await supabaseRef.current
       .from("forest")
-      .select("id, name, position_x, position_z, tree_type, created_at")
+      .select("id, name, position_x, position_z, position_y, tree_type, created_at")
       .order("id", { ascending: true });
     if (data) {
       setTrees(data as Tree[]);
@@ -347,116 +512,22 @@ export default function Home() {
       const g = buildTree(tree, THREE);
       const bs = getGrowthScale(tree.created_at);
       g.scale.set(bs, bs, bs);
-      g.position.set(tree.position_x, 0, tree.position_z);
+
+      // Use stored position_y if available and > 0, otherwise calculate from mountain
+      const yPos = (tree.position_y && tree.position_y > 0) ? tree.position_y : getMountainHeight(tree.position_x, tree.position_z);
+      g.position.set(tree.position_x, yPos, tree.position_z);
+
       g.traverse((c: any) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
       scene.add(g);
       ref.treeMeshes.push(g);
-      ref.treeData.set(g, tree);
+      ref.treeData.set(g, { ...tree, position_y: yPos });
       ref.treeBaseScale.set(g, bs);
 
       const lbl = createTextSprite(THREE, tree.name);
-      lbl.position.set(tree.position_x, 18 * bs, tree.position_z);
+      lbl.position.set(tree.position_x, yPos + 18 * bs, tree.position_z);
       scene.add(lbl);
       ref.treeLabels.push(lbl);
     });
-  };
-
-  const buildTree = (tree: Tree, THREE: any): any => {
-    const group = new THREE.Group();
-    const type = tree.tree_type % TREE_TYPES;
-
-    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4037 });
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.45, 3.5, 8), trunkMat);
-    trunk.position.y = 1.75;
-    trunk.castShadow = true;
-    group.add(trunk);
-
-    if (type === 0) {
-      // 圆润绿树 - 层次分明的大树冠
-      const crownMat = new THREE.MeshLambertMaterial({ color: 0x2e7d32 });
-      const crown1 = new THREE.Mesh(new THREE.SphereGeometry(2.8, 8, 8), crownMat);
-      crown1.position.y = 6; crown1.scale.set(1, 0.85, 1);
-      group.add(crown1);
-      const crown2 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 8), new THREE.MeshLambertMaterial({ color: 0x388e3c }));
-      crown2.position.y = 7.5; crown2.scale.set(1, 0.9, 1);
-      group.add(crown2);
-      const crown3 = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 8), new THREE.MeshLambertMaterial({ color: 0x43a047 }));
-      crown3.position.y = 8.8;
-      group.add(crown3);
-      // 树干纹理 - 苔藓色底部
-      const moss = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.5, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0x33691e }));
-      moss.position.y = 0.25;
-      group.add(moss);
-    } else if (type === 1) {
-      // 樱花树 - 粉色花冠
-      const trunk2 = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.38, 2.2, 8), new THREE.MeshLambertMaterial({ color: 0x4e342e }));
-      trunk2.position.y = 1.1;
-      group.add(trunk2);
-      const colors2 = [0xf48fb1, 0xf8bbd9, 0xffc0de];
-      for (let i = 0; i < 3; i++) {
-        const c = new THREE.Mesh(new THREE.SphereGeometry(2.5 - i * 0.5, 8, 8), new THREE.MeshLambertMaterial({ color: colors2[i] }));
-        c.position.y = 3.5 + i * 1.5;
-        c.castShadow = true;
-        group.add(c);
-      }
-      // 花瓣装饰
-      for (let i = 0; i < 25; i++) {
-        const p = new THREE.Mesh(new THREE.SphereGeometry(0.18, 5, 5), new THREE.MeshLambertMaterial({ color: 0xfff0f5 }));
-        p.position.set((Math.random() - 0.5) * 5, 3 + Math.random() * 4, (Math.random() - 0.5) * 5);
-        group.add(p);
-      }
-    } else if (type === 2) {
-      // 枫树 - 橙红色系
-      const trunk3 = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.48, 3.8, 8), new THREE.MeshLambertMaterial({ color: 0x6d4c41 }));
-      trunk3.position.y = 1.9;
-      group.add(trunk3);
-      const maples = [
-        { y: 5.5, r: 2.6, color: 0xe64a19 },
-        { y: 7.2, r: 2.1, color: 0xff5722 },
-        { y: 8.6, r: 1.5, color: 0xff7043 },
-      ];
-      maples.forEach(m => {
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(m.r, 3.5, 8), new THREE.MeshLambertMaterial({ color: m.color }));
-        cone.position.y = m.y;
-        cone.castShadow = true;
-        group.add(cone);
-      });
-    } else if (type === 3) {
-      // 松树 - 深绿塔形
-      const trunk4 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 5.5, 8), new THREE.MeshLambertMaterial({ color: 0x3e2723 }));
-      trunk4.position.y = 2.75;
-      group.add(trunk4);
-      const pine = [
-        { y: 4.5, r: 3.0, h: 3.0 },
-        { y: 6.5, r: 2.4, h: 2.8 },
-        { y: 8.2, r: 1.8, h: 2.5 },
-        { y: 9.6, r: 1.2, h: 2.0 },
-      ];
-      pine.forEach(p => {
-        const c = new THREE.Mesh(new THREE.ConeGeometry(p.r, p.h, 8), new THREE.MeshLambertMaterial({ color: 0x1b5e20 }));
-        c.position.y = p.y;
-        c.castShadow = true;
-        group.add(c);
-      });
-    } else {
-      // 棕榈 - 热带风情
-      const trunk5 = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 5.5, 6), new THREE.MeshLambertMaterial({ color: 0x8d6e63 }));
-      trunk5.position.y = 2.75;
-      group.add(trunk5);
-      for (let i = 0; i < 7; i++) {
-        const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.4, 4.5, 4), new THREE.MeshLambertMaterial({ color: 0x43a047 }));
-        leaf.position.y = 5.8;
-        leaf.rotation.z = 0.7;
-        leaf.rotation.y = (i / 7) * Math.PI * 2;
-        group.add(leaf);
-      }
-      // 顶部
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshLambertMaterial({ color: 0x66bb6a }));
-      top.position.y = 5.8;
-      group.add(top);
-    }
-
-    return group;
   };
 
   const addSingleTree = (tree: Tree) => {
@@ -466,34 +537,36 @@ export default function Home() {
 
     const g = buildTree(tree, THREE);
     const bs = getGrowthScale(tree.created_at);
+    const yPos = (tree.position_y && tree.position_y > 0) ? tree.position_y : getMountainHeight(tree.position_x, tree.position_z);
+
     g.scale.set(0.01, 0.01, 0.01);
-    g.position.set(tree.position_x, -2, tree.position_z);
+    g.position.set(tree.position_x, yPos - 3, tree.position_z);
     g.traverse((c: any) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
     scene.add(g);
     ref.treeMeshes.push(g);
-    ref.treeData.set(g, tree);
+    ref.treeData.set(g, { ...tree, position_y: yPos });
     ref.treeBaseScale.set(g, bs);
 
     const lbl = createTextSprite(THREE, tree.name);
-    lbl.position.set(tree.position_x, 18 * bs, tree.position_z);
+    lbl.position.set(tree.position_x, yPos + 18 * bs, tree.position_z);
     lbl.scale.set(0.01, 0.01, 0.01);
     scene.add(lbl);
     ref.treeLabels.push(lbl);
 
-    // Animate
+    // Animate: tree grows up from ground
     let p = 0;
     const step = () => {
       p += 0.035;
       if (p < 1) {
         const s = Math.sin(p * Math.PI / 2) * bs;
         g.scale.set(s, s, s);
-        g.position.y = -2 + p * 2;
+        g.position.y = yPos - 3 + p * 3;
         const ls = Math.sin(p * Math.PI / 2);
         lbl.scale.set(ls, ls, ls);
         requestAnimationFrame(step);
       } else {
         g.scale.set(bs, bs, bs);
-        g.position.y = 0;
+        g.position.y = yPos;
         lbl.scale.set(1, 1, 1);
       }
     };
@@ -501,6 +574,7 @@ export default function Home() {
   };
 
   const getPos = (idx: number) => {
+    // Spiral distribution over the terrain
     const per = Math.ceil(Math.sqrt(idx + 1));
     const sp = TREE_SPACING;
     const row = Math.floor(idx / per);
@@ -517,20 +591,43 @@ export default function Home() {
     setSubmitting(true);
     setMessage("");
     const pos = getPos(treeCount);
+    const yPos = getMountainHeight(pos.x, pos.z);
     const tt = Math.floor(Math.random() * TREE_TYPES);
 
+    // Try inserting with position_y (new column), fallback to old insert
     const { error } = await supabaseRef.current.from("forest").insert([{
-      name: name.trim(), position_x: pos.x, position_z: pos.z, tree_type: tt,
+      name: name.trim(),
+      position_x: pos.x,
+      position_z: pos.z,
+      position_y: Math.round(yPos * 100) / 100, // store 2 decimal places
+      tree_type: tt,
     }]);
+
     if (error) {
-      setMessage("❌ " + error.message);
-    } else {
-      setName("");
-      setMessage("🌱 " + name.trim() + " 种下了一棵树！");
-      const t: Tree = { id: treeCount + 1, name: name.trim(), position_x: pos.x, position_z: pos.z, tree_type: tt, created_at: new Date().toISOString() };
-      setTreeCount(p => p + 1);
-      addSingleTree(t);
+      // Fallback: insert without position_y (old schema)
+      const { error: error2 } = await supabaseRef.current.from("forest").insert([{
+        name: name.trim(), position_x: pos.x, position_z: pos.z, tree_type: tt,
+      }]);
+      if (error2) {
+        setMessage("❌ " + error2.message);
+        setSubmitting(false);
+        return;
+      }
     }
+
+    setName("");
+    setMessage("🌱 " + name.trim() + " 在" + (yPos > 1 ? "山上" : "地面") + "种下了一棵树！");
+    const t: Tree = {
+      id: treeCount + 1,
+      name: name.trim(),
+      position_x: pos.x,
+      position_z: pos.z,
+      position_y: yPos,
+      tree_type: tt,
+      created_at: new Date().toISOString()
+    };
+    setTreeCount(p => p + 1);
+    addSingleTree(t);
     setSubmitting(false);
   };
 
@@ -550,8 +647,8 @@ export default function Home() {
           background: "rgba(26,35,126,0.9)", zIndex: 50, pointerEvents: "none",
         }}>
           <div style={{ textAlign: "center", color: "#fff" }}>
-            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🌲</div>
-            <div style={{ fontSize: "1.1rem", opacity: 0.9 }}>森林加载中...</div>
+            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🏔️</div>
+            <div style={{ fontSize: "1.1rem", opacity: 0.9 }}>山地森林加载中...</div>
           </div>
         </div>
       )}
@@ -569,7 +666,7 @@ export default function Home() {
             fontSize: "clamp(1.1rem, 4vw, 1.6rem)", fontWeight: 700,
             color: "#fff", margin: 0, textShadow: "0 2px 8px rgba(0,0,0,0.4)",
           }}>
-            🌲 3D 森林
+            🏔️ 山地森林
           </h1>
           <p style={{ fontSize: "clamp(0.7rem, 2.5vw, 0.85rem)", color: "rgba(255,255,255,0.8)", margin: 0 }}>
             {treeCount} 棵树 🪴 · 每30秒长大一点
@@ -652,7 +749,7 @@ export default function Home() {
           textAlign: "center", marginTop: "0.6rem",
           color: "#bdbdbd", fontSize: "clamp(0.65rem, 2vw, 0.75rem)",
         }}>
-          拖动旋转视角 · 树上的名字标识
+          拖动旋转视角 · 树上的名字标识 · 树会种在山坡上
         </p>
       </div>
     </div>
