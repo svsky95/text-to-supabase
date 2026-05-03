@@ -8,6 +8,7 @@ type Question = {
   difficulty: 1 | 2 | 3;
   question: string;
   options: string[];
+  answer: number; // 0-based index of correct option
   explanation: string;
 };
 
@@ -19,6 +20,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'MySQL 中，如何查看当前所有数据库？',
     options: ['SHOW DATABASES;', 'LIST DATABASES;', 'SHOW DB;', 'DISPLAY DATABASES;'],
+    answer: 0,
     explanation: 'MySQL 标准语法是 SHOW DATABASES; 用于列出所有数据库。',
   },
   {
@@ -27,6 +29,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'InnoDB 的默认隔离级别是？',
     options: ['Read Uncommitted', 'Read Committed', 'Repeatable Read', 'Serializable'],
+    answer: 2,
     explanation: 'InnoDB 默认隔离级别是 Repeatable Read，通过 MVCC + Next-Key Locking 防止幻读。',
   },
   {
@@ -35,6 +38,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'MySQL 联合索引 (a, b, c) 中，以下哪个查询能命中索引？',
     options: ['WHERE a=1 AND b=2', 'WHERE b=2 AND c=3', 'WHERE c=3', 'WHERE b=2'],
+    answer: 0,
     explanation: '联合索引遵循最左前缀原则，必须包含 a 列才能命中索引。',
   },
   {
@@ -48,6 +52,7 @@ const QUESTIONS: Question[] = [
       '自动 failover',
       '支持多主复制',
     ],
+    answer: 1,
     explanation: '半同步复制确保事务在主库提交前，至少有一个从库确认收到 binlog 数据，防止数据丢失。',
   },
   {
@@ -56,6 +61,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'MySQL 中用于存储引擎是 InnoDB 的系统表是哪个？',
     options: ['MyISAM', 'InnoDB', 'MEMORY', 'BLACKHOLE'],
+    answer: 1,
     explanation: 'InnoDB 是 MySQL 5.5+ 的默认存储引擎，支持事务和行级锁。',
   },
   // PostgreSQL
@@ -65,6 +71,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'PostgreSQL 查看版本的命令是？',
     options: ['SELECT VERSION();', 'SHOW VERSION;', 'VERSION();', 'PG_VERSION();'],
+    answer: 0,
     explanation: 'PostgreSQL 使用 SELECT VERSION(); 查看版本信息，结果类似 "PostgreSQL 16.2 on x86_64..."',
   },
   {
@@ -73,6 +80,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'PostgreSQL 中，以下哪种索引类型支持全文搜索？',
     options: ['B-tree', 'GiST', 'GIN', 'BRIN'],
+    answer: 2,
     explanation: 'GIN（Generalized Inverted Index）索引支持全文搜索和数组类型；GiST 用于几何类型。',
   },
   {
@@ -81,6 +89,7 @@ const QUESTIONS: Question[] = [
     difficulty: 3,
     question: 'PostgreSQL MVCC 实现依赖的关键数据结构是？',
     options: ['Redo Log', 'Undo Log', 'WAL', 'Vacuum'],
+    answer: 2,
     explanation: 'PostgreSQL 通过 WAL（Write-Ahead Log）配合 Vacuum 清理旧版本实现 MVCC，不依赖回滚段。',
   },
   {
@@ -89,6 +98,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'PostgreSQL 中，如何让一个查询使用多个 CPU 核心并行执行？',
     options: ['PARALLEL hint', 'SET max_parallel_workers_per_gather = 4', 'JOIN PARALLEL', 'USE MULTICORE'],
+    answer: 1,
     explanation: '通过设置 max_parallel_workers_per_gather 参数，PostgreSQL 可对顺序扫描、聚合等操作启用并行。',
   },
   {
@@ -97,6 +107,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'PostgreSQL 中，哪个命令用于修改用户密码？',
     options: ['ALTER USER ... SET PASSWORD', 'SET PASSWORD', 'CREATE USER ... WITH PASSWORD', 'GRANT PASSWORD'],
+    answer: 0,
     explanation: 'PostgreSQL 使用 ALTER USER username WITH PASSWORD \'newpassword\'; 修改密码。',
   },
   // MongoDB
@@ -106,6 +117,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'MongoDB 文档的最大大小是多少？',
     options: ['8MB', '16MB', '32MB', '无限制'],
+    answer: 1,
     explanation: 'MongoDB 单个文档（Document）最大为 16MB，这是 BSON 文档格式的限制。',
   },
   {
@@ -114,6 +126,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'MongoDB 中，replica set 节点有哪几种类型？',
     options: ['Primary / Secondary / Arbiter', 'Master / Slave / Relay', 'Leader / Follower / Watcher', 'Active / Standby / Halted'],
+    answer: 0,
     explanation: 'MongoDB Replica Set 包含 Primary（接受写入）、Secondary（复制数据）、Arbiter（投票不存数据）三种节点。',
   },
   {
@@ -127,6 +140,7 @@ const QUESTIONS: Question[] = [
       '写入多数节点并确认后返回',
       '写入所有节点后返回',
     ],
+    answer: 2,
     explanation: '"majority" 表示写入多数投票节点（多数派）并确认后客户端才收到成功响应，保证数据不丢失。',
   },
   {
@@ -135,6 +149,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'MongoDB 聚合管道（Aggregation Pipeline）中，$group 和 $match 的执行顺序？',
     options: ['$group 先于 $match', '$match 先于 $group', '并行执行', '由查询优化器决定'],
+    answer: 1,
     explanation: '在管道中 $match 应尽量放在前面以减少数据量；$group 在后面做分组聚合。顺序由管道设计者决定。',
   },
   {
@@ -143,6 +158,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'MongoDB 中，如何查看当前所有数据库？',
     options: ['show dbs', 'db.adminCommand("listDatabases")', 'db.getDatabases()', 'ALL OF ABOVE'],
+    answer: 3,
     explanation: '在 mongo shell 中，show dbs 和 db.adminCommand("listDatabases") 都可列出所有数据库。',
   },
   // Oracle
@@ -152,6 +168,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'Oracle 数据库中，SGA 是用于什么的内存区域？',
     options: ['用户会话', '程序代码', '系统全局区，存放缓存数据', '后台进程'],
+    answer: 2,
     explanation: 'SGA（System Global Area）是 Oracle 的共享内存区域，存放数据缓冲区、重做日志缓冲等。',
   },
   {
@@ -165,6 +182,7 @@ const QUESTIONS: Question[] = [
       '同步复制，无数据丢失，支持自动 failover',
       '异步复制，性能最好',
     ],
+    answer: 2,
     explanation: 'Maximum Availability 模式采用同步传输（SYNC）+ LGWR，确保零数据丢失，且支持自动切换。',
   },
   {
@@ -173,6 +191,7 @@ const QUESTIONS: Question[] = [
     difficulty: 2,
     question: 'Oracle 中，如何查询当前用户的会话信息？',
     options: ['SELECT * FROM V$SESSION;', 'SHOW SESSIONS;', 'LIST SESSIONS;', 'DISPLAY SESSION;'],
+    answer: 0,
     explanation: 'V$SESSION 是 Oracle 动态性能视图，存储当前所有会话信息，需要 SYSDBA 权限查看全部记录。',
   },
   {
@@ -181,6 +200,7 @@ const QUESTIONS: Question[] = [
     difficulty: 3,
     question: 'Oracle 自动存储管理（ASM）的条带化单元是？',
     options: ['AU（Allocation Unit）', 'Block', 'Extent', 'Segment'],
+    answer: 0,
     explanation: 'ASM 以 AU（Allocation Unit）为分配单元，默认 1MB，条带化深度可选 1/4/8/16 AU。',
   },
   {
@@ -189,6 +209,7 @@ const QUESTIONS: Question[] = [
     difficulty: 1,
     question: 'Oracle 中，哪个视图用于查看执行计划？',
     options: ['V$SQL_PLAN', 'PLAN_TABLE', 'EXPLAIN_PLAN', 'ALL OF ABOVE'],
+    answer: 3,
     explanation: 'EXPLAIN PLAN 将计划写入 PLAN_TABLE；V$SQL_PLAN 显示内存中正在执行的 SQL 计划；两者均可查看。',
   },
 ];
@@ -230,7 +251,7 @@ export default function QuizPage() {
     if (answered) return;
     setSelected(idx);
     setAnswered(true);
-    const correct = idx === 0; // options[0] is always correct in our data
+    const correct = idx === q.answer;
     if (correct) setScore(s => s + (4 - q.difficulty) * 10);
     setAnsweredIds(ids => [...ids, q.id]);
   }
@@ -312,7 +333,7 @@ export default function QuizPage() {
             let border = '#e9ecef';
             let color = '#212529';
             if (answered) {
-              if (idx === 0) { bg = '#d4edda'; border = '#28a745'; }
+              if (idx === q.answer) { bg = '#d4edda'; border = '#28a745'; }
               else if (idx === selected) { bg = '#f8d7da'; border = '#dc3545'; }
             } else if (selected === idx) {
               bg = '#e7f3ff'; border = '#007bff';
